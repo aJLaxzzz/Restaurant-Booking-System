@@ -1,0 +1,123 @@
+# Инфраструктура + микросервисы за Nginx (шлюз на порту 8080).
+# Монолит локально: cd backend && go run ./cmd/api (порт по умолчанию 8080 — не поднимайте gateway одновременно).
+
+x-common-env: &common-env
+  ADDR: :8080
+  DATABASE_URL: postgres://rbs:rbs@postgres:5432/restaurant_booking?sslmode=disable
+  REDIS_ADDR: redis:6379
+  RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+  JWT_SECRET: dev-secret-change-me-min-32-chars-long!!
+  INTERNAL_SECRET: internal-shared-secret-change
+  FRONTEND_ORIGIN: http://localhost:5173
+  WEBHOOK_SECRET: webhook-hmac-secret-change
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: rbs
+      POSTGRES_PASSWORD: rbs
+      POSTGRES_DB: restaurant_booking
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rbs -d restaurant_booking"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  auth:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: auth
+    environment:
+      <<: *common-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  hall:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: hall
+    environment:
+      <<: *common-env
+      HALL_SERVICE_URL: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  reservation:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: reservation
+    environment:
+      <<: *common-env
+      HALL_SERVICE_URL: http://hall:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      hall:
+        condition: service_started
+
+  payment:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: payment
+    environment:
+      <<: *common-env
+      HALL_SERVICE_URL: http://hall:8080
+      PUBLIC_APP_URL: http://localhost:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      hall:
+        condition: service_started
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - auth
+      - hall
+      - reservation
+      - payment
+
+volumes:
+  pgdata:
