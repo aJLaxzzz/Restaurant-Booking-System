@@ -37,6 +37,13 @@ func main() {
 		log.Fatal("migrate: ", err)
 	}
 
+	var dbName string
+	var nRest int
+	if err := pool.QueryRow(ctx, `SELECT current_database()`).Scan(&dbName); err == nil {
+		_ = pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM restaurants`).Scan(&nRest)
+		log.Printf("postgres: БД=%s ресторанов=%d url=%s", dbName, nRest, config.RedactDatabaseURL(cfg.DatabaseURL))
+	}
+
 	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
 	defer rdb.Close()
 	if err := rdb.Ping(ctx).Err(); err != nil {
@@ -50,7 +57,7 @@ func main() {
 	srv := &http.Server{Addr: cfg.Addr, Handler: a.RouterMonolith()}
 
 	go func() {
-		log.Printf("API (монолит) http://localhost%s", cfg.Addr)
+		log.Printf("Restobook API (монолит) http://localhost%s", cfg.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)
 		}

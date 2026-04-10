@@ -32,9 +32,10 @@ func (a *Handlers) finalizePaymentSuccess(ctx context.Context, paymentID uuid.UU
 	defer tx.Rollback(ctx)
 
 	var resID uuid.UUID
-	var payStatus string
-	err = tx.QueryRow(ctx, `SELECT reservation_id, status FROM payments WHERE id=$1 FOR UPDATE`, paymentID).
-		Scan(&resID, &payStatus)
+	var payStatus, purpose string
+	var orderID uuid.NullUUID
+	err = tx.QueryRow(ctx, `SELECT reservation_id, status, COALESCE(purpose,'deposit'), reservation_order_id FROM payments WHERE id=$1 FOR UPDATE`, paymentID).
+		Scan(&resID, &payStatus, &purpose, &orderID)
 	if err != nil {
 		return err
 	}
@@ -48,6 +49,26 @@ func (a *Handlers) finalizePaymentSuccess(ctx context.Context, paymentID uuid.UU
 		paymentID, gwPaymentID, string(rawJSON))
 	if err != nil {
 		return err
+	}
+
+	if purpose == "tab" && orderID.Valid {
+		_, _ = tx.Exec(ctx, `UPDATE reservation_orders SET status='closed', updated_at=NOW() WHERE id=$1`, orderID.UUID)
+		var hallID uuid.UUID
+		var tableID uuid.UUID
+		_ = tx.QueryRow(ctx, `SELECT t.hall_id FROM reservations r JOIN tables t ON t.id=r.table_id WHERE r.id=$1`, resID).Scan(&hallID)
+		_ = tx.QueryRow(ctx, `SELECT table_id FROM reservations WHERE id=$1`, resID).Scan(&tableID)
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		ts := time.Now().UTC().Format(time.RFC3339)
+		a.emitHallEvent(hallID, map[string]any{
+			"event": "tab.paid", "reservation_id": resID.String(), "order_id": orderID.UUID.String(),
+			"timestamp": ts,
+		})
+		_ = a.publishEvent(ctx, "payment.succeeded", map[string]any{
+			"payment_id": paymentID.String(), "reservation_id": resID.String(), "purpose": "tab",
+		})
+		return nil
 	}
 
 	var tableID uuid.UUID
@@ -160,9 +181,10 @@ func (a *Handlers) handlePaymentGet(w http.ResponseWriter, r *http.Request) {
 	var amount int
 	var status string
 	var idem uuid.UUID
+	var purpose string
 	err = a.Pool.QueryRow(r.Context(), `
-		SELECT reservation_id, amount_kopecks, status, idempotency_key FROM payments WHERE id=$1`, pid).
-		Scan(&resID, &amount, &status, &idem)
+		SELECT reservation_id, amount_kopecks, status, idempotency_key, COALESCE(purpose,'deposit') FROM payments WHERE id=$1`, pid).
+		Scan(&resID, &amount, &status, &idem, &purpose)
 	if err == pgx.ErrNoRows {
 		a.err(w, http.StatusNotFound, "нет")
 		return
@@ -175,7 +197,7 @@ func (a *Handlers) handlePaymentGet(w http.ResponseWriter, r *http.Request) {
 	}
 	a.json(w, http.StatusOK, map[string]any{
 		"id": pid.String(), "reservation_id": resID.String(), "amount_kopecks": amount,
-		"status": status, "idempotency_key": idem.String(),
+		"status": status, "idempotency_key": idem.String(), "purpose": purpose,
 	})
 }
 

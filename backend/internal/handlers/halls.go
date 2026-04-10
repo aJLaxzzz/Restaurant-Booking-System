@@ -12,7 +12,34 @@ import (
 )
 
 func (a *Handlers) handleHallsList(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.Pool.Query(r.Context(), `SELECT h.id, h.name, r.name FROM halls h JOIN restaurants r ON r.id = h.restaurant_id ORDER BY h.name`)
+	ridStr := r.URL.Query().Get("restaurant_id")
+	var filter *uuid.UUID
+	if ridStr != "" {
+		rid, err := uuid.Parse(ridStr)
+		if err != nil {
+			a.err(w, http.StatusBadRequest, "restaurant_id")
+			return
+		}
+		filter = &rid
+	}
+	if u, ok := userFromOptional(r); ok && (u.Role == "admin" || u.Role == "waiter" || u.Role == "owner") {
+		sr, err := a.restaurantUUIDForUser(r.Context(), u.ID, u.Role)
+		if err == nil && sr != uuid.Nil {
+			if filter != nil && *filter != sr {
+				a.err(w, http.StatusForbidden, "чужое заведение")
+				return
+			}
+			filter = &sr
+		}
+	}
+	q := `SELECT h.id, h.name, r.name, r.id FROM halls h JOIN restaurants r ON r.id = h.restaurant_id`
+	args := []any{}
+	if filter != nil {
+		q += ` WHERE h.restaurant_id=$1`
+		args = append(args, *filter)
+	}
+	q += ` ORDER BY r.name, h.name`
+	rows, err := a.Pool.Query(r.Context(), q, args...)
 	if err != nil {
 		a.err(w, http.StatusInternalServerError, "БД")
 		return
@@ -20,10 +47,13 @@ func (a *Handlers) handleHallsList(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	var out []map[string]any
 	for rows.Next() {
-		var id uuid.UUID
+		var id, restID uuid.UUID
 		var hn, rn string
-		_ = rows.Scan(&id, &hn, &rn)
-		out = append(out, map[string]any{"id": id.String(), "name": hn, "restaurant": rn})
+		_ = rows.Scan(&id, &hn, &rn, &restID)
+		out = append(out, map[string]any{
+			"id": id.String(), "name": hn, "restaurant": rn,
+			"restaurant_id": restID.String(),
+		})
 	}
 	a.json(w, http.StatusOK, out)
 }
@@ -45,21 +75,24 @@ func (a *Handlers) handleHallGet(w http.ResponseWriter, r *http.Request) {
 }
 
 type layoutTable struct {
-	ID       string  `json:"id"`
-	Number   int     `json:"number"`
-	Capacity int     `json:"capacity"`
-	X        float64 `json:"x"`
-	Y        float64 `json:"y"`
-	Shape    string  `json:"shape"`
-	Radius   float64 `json:"radius,omitempty"`
-	Width    float64 `json:"width,omitempty"`
-	Height   float64 `json:"height,omitempty"`
-	Status   string  `json:"status"`
+	ID          string  `json:"id"`
+	Number      int     `json:"number"`
+	Capacity    int     `json:"capacity"`
+	X           float64 `json:"x"`
+	Y           float64 `json:"y"`
+	Shape       string  `json:"shape"`
+	Radius      float64 `json:"radius,omitempty"`
+	Width       float64 `json:"width,omitempty"`
+	Height      float64 `json:"height,omitempty"`
+	RotationDeg float64 `json:"rotation_deg,omitempty"`
+	Status      string  `json:"status"`
 }
 
+// layoutJSON: walls — сегменты {x1,y1,x2,y2}; decorations — zone_label, window_band, door/window (сегмент), zone (rect + label).
 type layoutJSON struct {
-	Tables []layoutTable  `json:"tables"`
-	Walls  []map[string]float64 `json:"walls"`
+	Tables        []layoutTable          `json:"tables"`
+	Walls         []map[string]float64   `json:"walls"`
+	Decorations   []map[string]any       `json:"decorations"`
 }
 
 func (a *Handlers) handleLayoutGet(w http.ResponseWriter, r *http.Request) {
@@ -75,10 +108,18 @@ func (a *Handlers) handleLayoutGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var lj layoutJSON
-	_ = json.Unmarshal(layoutRaw, &lj)
+	if len(layoutRaw) > 0 && layoutRaw[0] == '[' {
+		_ = json.Unmarshal(layoutRaw, &lj.Walls)
+	} else {
+		_ = json.Unmarshal(layoutRaw, &lj)
+	}
+	if lj.Decorations == nil {
+		lj.Decorations = []map[string]any{}
+	}
 
 	rows, err := a.Pool.Query(r.Context(), `
-		SELECT id, table_number, capacity, x_coordinate, y_coordinate, shape, status, block_reason
+		SELECT id, table_number, capacity, x_coordinate, y_coordinate, shape, status, block_reason,
+		       width, height, rotation_deg
 		FROM tables WHERE hall_id=$1 ORDER BY table_number`, hallID)
 	if err != nil {
 		a.err(w, http.StatusInternalServerError, "БД")
@@ -92,13 +133,14 @@ func (a *Handlers) handleLayoutGet(w http.ResponseWriter, r *http.Request) {
 		uidStr = u.ID.String()
 	}
 
-	var tables []layoutTable
+	tables := make([]layoutTable, 0)
 	for rows.Next() {
 		var id uuid.UUID
 		var num, cap int
 		var x, y float64
 		var shape, status, blockReason *string
-		_ = rows.Scan(&id, &num, &cap, &x, &y, &shape, &status, &blockReason)
+		var width, height, rot float64
+		_ = rows.Scan(&id, &num, &cap, &x, &y, &shape, &status, &blockReason, &width, &height, &rot)
 		sh := "circle"
 		if shape != nil {
 			sh = *shape
@@ -121,18 +163,22 @@ func (a *Handlers) handleLayoutGet(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		rad := width / 2
+		if rad <= 0 {
+			rad = 28
+		}
 		lt := layoutTable{
-			ID: id.String(), Number: num, Capacity: cap, X: x, Y: y, Shape: sh, Status: st, Radius: 28,
+			ID: id.String(), Number: num, Capacity: cap, X: x, Y: y, Shape: sh, Status: st,
+			Radius: rad, Width: width, Height: height, RotationDeg: rot,
 		}
 		tables = append(tables, lt)
 	}
 
-	// walls from layout_json if present
 	walls := lj.Walls
 	if walls == nil {
 		walls = []map[string]float64{}
 	}
-	a.json(w, http.StatusOK, map[string]any{"tables": tables, "walls": walls})
+	a.json(w, http.StatusOK, map[string]any{"tables": tables, "walls": walls, "decorations": lj.Decorations})
 }
 
 // handleHallAvailability — столы, подходящие по вместимости и без пересечения по времени.
@@ -158,14 +204,15 @@ func (a *Handlers) handleHallAvailability(w http.ResponseWriter, r *http.Request
 		guests = 1
 	}
 	rows, err := a.Pool.Query(r.Context(), `
-		SELECT id, table_number, capacity, x_coordinate, y_coordinate, shape, status
-		FROM tables WHERE hall_id=$1 AND capacity >= $2 AND status != 'blocked'`, hallID, guests)
+		SELECT id, table_number, capacity, x_coordinate, y_coordinate,
+		       COALESCE(shape, 'circle'), COALESCE(status, 'available')
+		FROM tables WHERE hall_id=$1 AND capacity >= $2 AND COALESCE(status, 'available') != 'blocked'`, hallID, guests)
 	if err != nil {
 		a.err(w, http.StatusInternalServerError, "БД")
 		return
 	}
 	defer rows.Close()
-	var out []map[string]any
+	out := make([]map[string]any, 0)
 	for rows.Next() {
 		var id uuid.UUID
 		var num, cap int
@@ -202,7 +249,10 @@ func (a *Handlers) handleLayoutPut(w http.ResponseWriter, r *http.Request) {
 		a.err(w, http.StatusBadRequest, "JSON")
 		return
 	}
-	b, _ := json.Marshal(map[string]any{"tables": body.Tables, "walls": body.Walls})
+	if body.Decorations == nil {
+		body.Decorations = []map[string]any{}
+	}
+	b, _ := json.Marshal(map[string]any{"tables": body.Tables, "walls": body.Walls, "decorations": body.Decorations})
 	tx, err := a.Pool.Begin(r.Context())
 	if err != nil {
 		a.err(w, http.StatusInternalServerError, "tx")
@@ -219,14 +269,27 @@ func (a *Handlers) handleLayoutPut(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		radius := t.Radius
-		if radius <= 0 {
-			radius = 28
+		w := t.Width
+		h := t.Height
+		if w <= 0 {
+			if t.Radius > 0 {
+				w = t.Radius * 2
+			} else {
+				w = 56
+			}
+		}
+		if h <= 0 {
+			if t.Radius > 0 {
+				h = t.Radius * 2
+			} else {
+				h = 56
+			}
 		}
 		_, _ = tx.Exec(r.Context(), `
-			UPDATE tables SET x_coordinate=$3, y_coordinate=$4, capacity=$5, shape=$6, table_number=$7, updated_at=NOW()
+			UPDATE tables SET x_coordinate=$3, y_coordinate=$4, capacity=$5, shape=$6, table_number=$7,
+				width=$8, height=$9, rotation_deg=$10, updated_at=NOW()
 			WHERE id=$1 AND hall_id=$2`,
-			tid, hallID, t.X, t.Y, t.Capacity, t.Shape, t.Number)
+			tid, hallID, t.X, t.Y, t.Capacity, t.Shape, t.Number, w, h, t.RotationDeg)
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		a.err(w, http.StatusInternalServerError, "commit")

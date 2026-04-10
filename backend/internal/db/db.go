@@ -32,6 +32,13 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+		filename TEXT PRIMARY KEY,
+		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`); err != nil {
+		return fmt.Errorf("schema_migrations: %w", err)
+	}
+
 	entries, err := migrations.ReadDir("migrations")
 	if err != nil {
 		return fmt.Errorf("read migrations: %w", err)
@@ -43,13 +50,55 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 	}
 	sort.Strings(names)
+
+	// БД без записей о миграциях, но схема уже содержит 005 (extra_json) — помечаем 001–005 применёнными,
+	// чтобы не гонять повторно UPDATE из 003. Новые файлы (006+) по-прежнему применятся.
+	var smCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM schema_migrations`).Scan(&smCount); err != nil {
+		return fmt.Errorf("count schema_migrations: %w", err)
+	}
+	if smCount == 0 {
+		var hasExtraJSON bool
+		if err := pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'restaurants' AND column_name = 'extra_json'
+			)`).Scan(&hasExtraJSON); err != nil {
+			return fmt.Errorf("legacy check: %w", err)
+		}
+		if hasExtraJSON {
+			legacy := []string{
+				"001_init.sql",
+				"002_waiter_notes.sql",
+				"003_aggregator_menu_layout.sql",
+				"004_uploads_menu_image.sql",
+				"005_restaurant_contact_hours.sql",
+			}
+			for _, name := range legacy {
+				if _, err := pool.Exec(ctx, `INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`, name); err != nil {
+					return fmt.Errorf("bootstrap %s: %w", name, err)
+				}
+			}
+		}
+	}
+
 	for _, name := range names {
+		var already int
+		if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM schema_migrations WHERE filename = $1`, name).Scan(&already); err != nil {
+			return fmt.Errorf("check %s: %w", name, err)
+		}
+		if already > 0 {
+			continue
+		}
 		sqlBytes, err := migrations.ReadFile(path.Join("migrations", name))
 		if err != nil {
 			return fmt.Errorf("read %s: %w", name, err)
 		}
 		if _, err := pool.Exec(ctx, string(sqlBytes)); err != nil {
 			return fmt.Errorf("apply %s: %w", name, err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO schema_migrations (filename) VALUES ($1)`, name); err != nil {
+			return fmt.Errorf("record %s: %w", name, err)
 		}
 	}
 	return nil

@@ -185,12 +185,20 @@ func (a *Handlers) handleComplete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Handlers) handleAdminReservationCreate(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
+	ridScope, err := a.restaurantUUIDForUser(r.Context(), u.ID, u.Role)
+	if err != nil || ridScope == uuid.Nil {
+		a.err(w, http.StatusForbidden, "нет привязки к заведению")
+		return
+	}
+
 	var body struct {
-		UserID     uuid.UUID `json:"user_id"`
-		TableID    uuid.UUID `json:"table_id"`
-		StartTime  time.Time `json:"start_time"`
-		GuestCount int       `json:"guest_count"`
-		Comment    string    `json:"comment"`
+		UserID     uuid.UUID  `json:"user_id"`
+		TableID    *uuid.UUID `json:"table_id"`
+		HallID     *uuid.UUID `json:"hall_id"`
+		StartTime  time.Time  `json:"start_time"`
+		GuestCount int        `json:"guest_count"`
+		Comment    string     `json:"comment"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		a.err(w, http.StatusBadRequest, "JSON")
@@ -198,10 +206,76 @@ func (a *Handlers) handleAdminReservationCreate(w http.ResponseWriter, r *http.R
 	}
 	slot := a.getSettingInt(r.Context(), "default_slot_duration_hours", 2)
 	endTime := body.StartTime.Add(time.Duration(slot) * time.Hour)
-	var cap int
+
+	var tableID uuid.UUID
 	var hallID uuid.UUID
+
+	if body.TableID != nil && *body.TableID != uuid.Nil {
+		tableID = *body.TableID
+		var restID uuid.UUID
+		err = a.Pool.QueryRow(r.Context(), `
+			SELECT h.restaurant_id, t.hall_id FROM tables t JOIN halls h ON h.id = t.hall_id WHERE t.id=$1`, tableID).
+			Scan(&restID, &hallID)
+		if err == pgx.ErrNoRows {
+			a.err(w, http.StatusNotFound, "стол")
+			return
+		}
+		if err != nil {
+			a.err(w, http.StatusInternalServerError, "БД")
+			return
+		}
+		if restID != ridScope {
+			a.err(w, http.StatusForbidden, "чужой ресторан")
+			return
+		}
+	} else {
+		if body.HallID == nil || *body.HallID == uuid.Nil {
+			a.err(w, http.StatusBadRequest, "нужен hall_id или table_id")
+			return
+		}
+		var restID uuid.UUID
+		err = a.Pool.QueryRow(r.Context(), `SELECT restaurant_id FROM halls WHERE id=$1`, *body.HallID).Scan(&restID)
+		if err == pgx.ErrNoRows {
+			a.err(w, http.StatusNotFound, "зал")
+			return
+		}
+		if err != nil {
+			a.err(w, http.StatusInternalServerError, "БД")
+			return
+		}
+		if restID != ridScope {
+			a.err(w, http.StatusForbidden, "чужой ресторан")
+			return
+		}
+		hallID = *body.HallID
+		err = a.Pool.QueryRow(r.Context(), `
+			SELECT t.id FROM tables t
+			WHERE t.hall_id=$1 AND t.capacity >= $2
+			AND COALESCE(t.status,'available') != 'blocked'
+			AND NOT EXISTS (
+				SELECT 1 FROM reservations r
+				WHERE r.table_id = t.id
+				AND r.status NOT IN ('cancelled_by_client','cancelled_by_admin','no_show')
+				AND (
+					(r.start_time <= $3 AND r.end_time > $3) OR
+					(r.start_time < $4 AND r.end_time >= $4) OR
+					(r.start_time >= $3 AND r.end_time <= $4)
+				)
+			)
+			ORDER BY random() LIMIT 1`, hallID, body.GuestCount, body.StartTime, endTime).Scan(&tableID)
+		if err == pgx.ErrNoRows {
+			a.err(w, http.StatusConflict, "нет свободного стола в зале на это время")
+			return
+		}
+		if err != nil {
+			a.err(w, http.StatusInternalServerError, "БД")
+			return
+		}
+	}
+
+	var cap int
 	var tstatus string
-	err := a.Pool.QueryRow(r.Context(), `SELECT capacity, hall_id, status FROM tables WHERE id=$1`, body.TableID).
+	err = a.Pool.QueryRow(r.Context(), `SELECT capacity, hall_id, status FROM tables WHERE id=$1`, tableID).
 		Scan(&cap, &hallID, &tstatus)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -219,6 +293,21 @@ func (a *Handlers) handleAdminReservationCreate(w http.ResponseWriter, r *http.R
 		a.err(w, http.StatusBadRequest, "неверное число гостей")
 		return
 	}
+	var clientOverlap uuid.UUID
+	err = a.Pool.QueryRow(r.Context(), `
+		SELECT id FROM reservations
+		WHERE user_id=$1
+		AND status NOT IN ('cancelled_by_client','cancelled_by_admin','no_show')
+		AND start_time < $3 AND end_time > $2
+		LIMIT 1`, body.UserID, body.StartTime, endTime).Scan(&clientOverlap)
+	if err == nil {
+		a.err(w, http.StatusConflict, "у выбранного гостя уже есть бронь на это время")
+		return
+	}
+	if err != pgx.ErrNoRows {
+		a.err(w, http.StatusInternalServerError, "БД")
+		return
+	}
 	var conflict uuid.UUID
 	err = a.Pool.QueryRow(r.Context(), `
 		SELECT id FROM reservations WHERE table_id=$1
@@ -227,7 +316,7 @@ func (a *Handlers) handleAdminReservationCreate(w http.ResponseWriter, r *http.R
 			(start_time <= $2 AND end_time > $2) OR
 			(start_time < $3 AND end_time >= $3) OR
 			(start_time >= $2 AND end_time <= $3)
-		) LIMIT 1`, body.TableID, body.StartTime, endTime).Scan(&conflict)
+		) LIMIT 1`, tableID, body.StartTime, endTime).Scan(&conflict)
 	if err == nil {
 		a.err(w, http.StatusConflict, "время занято")
 		return
@@ -241,15 +330,15 @@ func (a *Handlers) handleAdminReservationCreate(w http.ResponseWriter, r *http.R
 		INSERT INTO reservations (table_id, user_id, start_time, end_time, guest_count, status, comment, created_by)
 		VALUES ($1,$2,$3,$4,$5,'confirmed',$6,'admin')
 		RETURNING id`,
-		body.TableID, body.UserID, body.StartTime, endTime, body.GuestCount, nullStr(body.Comment)).Scan(&rid)
+		tableID, body.UserID, body.StartTime, endTime, body.GuestCount, nullStr(body.Comment)).Scan(&rid)
 	if err != nil {
 		a.err(w, http.StatusInternalServerError, "не создано")
 		return
 	}
-	_, _ = a.Pool.Exec(r.Context(), `UPDATE tables SET status='occupied', updated_at=NOW() WHERE id=$1`, body.TableID)
+	_, _ = a.Pool.Exec(r.Context(), `UPDATE tables SET status='occupied', updated_at=NOW() WHERE id=$1`, tableID)
 	a.emitHallEvent(hallID, map[string]any{
-		"event": "table.booked", "table_id": body.TableID.String(), "reservation_id": rid.String(),
+		"event": "table.booked", "table_id": tableID.String(), "reservation_id": rid.String(),
 	})
 	_ = a.publishEvent(r.Context(), "reservation.admin_created", map[string]any{"reservation_id": rid.String()})
-	a.json(w, http.StatusCreated, map[string]string{"id": rid.String()})
+	a.json(w, http.StatusCreated, map[string]string{"id": rid.String(), "table_id": tableID.String()})
 }

@@ -19,10 +19,11 @@ var phoneRe = regexp.MustCompile(`^\+7\d{10}$`)
 
 func (a *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-		FullName string `json:"full_name"`
-		Phone    string `json:"phone"`
+		Email            string `json:"email"`
+		Password         string `json:"password"`
+		FullName         string `json:"full_name"`
+		Phone            string `json:"phone"`
+		RegisterAsOwner  bool   `json:"register_as_owner"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		a.err(w, http.StatusBadRequest, "неверный JSON")
@@ -51,11 +52,15 @@ func (a *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	phone := strings.ReplaceAll(body.Phone, " ", "")
+	role := "client"
+	if body.RegisterAsOwner {
+		role = "owner"
+	}
 	var id uuid.UUID
 	err = a.Pool.QueryRow(r.Context(), `
 		INSERT INTO users (email, password_hash, full_name, phone, role, email_verified)
-		VALUES ($1,$2,$3,$4,'client', true)
-		RETURNING id`, body.Email, string(hash), body.FullName, phone).Scan(&id)
+		VALUES ($1,$2,$3,$4,$5, true)
+		RETURNING id`, body.Email, string(hash), body.FullName, phone, role).Scan(&id)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique") {
 			a.err(w, http.StatusConflict, "email уже зарегистрирован")
@@ -187,10 +192,14 @@ func (a *Handlers) handleMe(w http.ResponseWriter, r *http.Request) {
 		a.err(w, http.StatusNotFound, "не найден")
 		return
 	}
-	a.json(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"id": u.ID.String(), "email": email, "full_name": fullName, "phone": phone,
 		"role": role, "status": status, "created_at": createdAt,
-	})
+	}
+	if rid, err := a.restaurantUUIDForUser(r.Context(), u.ID, role); err == nil && rid != uuid.Nil {
+		out["restaurant_id"] = rid.String()
+	}
+	a.json(w, http.StatusOK, out)
 }
 
 func (a *Handlers) handleMeUpdate(w http.ResponseWriter, r *http.Request) {

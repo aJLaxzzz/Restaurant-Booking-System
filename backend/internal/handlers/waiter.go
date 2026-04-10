@@ -185,15 +185,25 @@ func (a *Handlers) handleWaiterNote(w http.ResponseWriter, r *http.Request) {
 
 func (a *Handlers) handleWaiterTables(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
+	ridScope, err := a.restaurantUUIDForUser(r.Context(), u.ID, u.Role)
+	if err != nil || ridScope == uuid.Nil {
+		a.err(w, http.StatusForbidden, "нет привязки к заведению")
+		return
+	}
 	rows, err := a.Pool.Query(r.Context(), `
 		SELECT r.id, t.table_number, r.start_time, r.end_time, r.guest_count, r.status,
 		       us.full_name, us.phone
 		FROM reservations r
 		JOIN tables t ON t.id = r.table_id
+		JOIN halls h ON h.id = t.hall_id
 		JOIN users us ON us.id = r.user_id
-		WHERE (r.assigned_waiter_id = $1 OR $2 IN ('admin','owner'))
+		WHERE h.restaurant_id = $3
+		AND (
+			($2 = 'waiter' AND r.assigned_waiter_id = $1)
+			OR $2 IN ('admin','owner')
+		)
 		AND r.status IN ('confirmed','seated','in_service','pending_payment')
-		ORDER BY r.start_time`, u.ID, u.Role)
+		ORDER BY r.start_time`, u.ID, u.Role, ridScope)
 	if err != nil {
 		a.err(w, http.StatusInternalServerError, "БД")
 		return

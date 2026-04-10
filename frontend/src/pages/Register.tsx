@@ -9,12 +9,19 @@ export default function Register() {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('+7');
   const [err, setErr] = useState('');
+  const [asOwner, setAsOwner] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr('');
     try {
-      await api.post('/auth/register', { email, password, full_name: fullName, phone });
+      await api.post('/auth/register', {
+        email,
+        password,
+        full_name: fullName,
+        phone,
+        register_as_owner: asOwner,
+      });
       nav('/login');
     } catch (ex: unknown) {
       const m = ex as { response?: { data?: { error?: string } } };
@@ -34,6 +41,10 @@ export default function Register() {
         <input value={phone} onChange={(e) => setPhone(e.target.value)} required />
         <label>Пароль (буквы и цифры, от 8 символов)</label>
         <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <label className="checkbox-row">
+          <input type="checkbox" checked={asOwner} onChange={(e) => setAsOwner(e.target.checked)} />
+          Регистрация как владелец заведения (после входа можно создать ресторан и пригласить команду)
+        </label>
         {err && <p style={{ color: 'coral' }}>{err}</p>}
         <button type="submit">Создать аккаунт</button>
       </form>

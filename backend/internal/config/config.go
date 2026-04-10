@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -27,6 +28,8 @@ type Config struct {
 	YooKassaSecretKey string
 	StripeSecretKey   string
 	PublicAppURL      string // редирект после оплаты
+	// Загрузки изображений (локальная папка, раздаётся как GET /api/files/*)
+	UploadDir string
 }
 
 func Load() Config {
@@ -49,6 +52,7 @@ func Load() Config {
 		YooKassaSecretKey:   getEnv("YOOKASSA_SECRET_KEY", ""),
 		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
 		PublicAppURL:        getEnv("PUBLIC_APP_URL", "http://localhost:5173"),
+		UploadDir:           getEnv("UPLOAD_DIR", "./data/uploads"),
 	}
 }
 
@@ -57,6 +61,24 @@ func getEnv(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// RedactDatabaseURL убирает пароль из URL для логов и диагностики.
+func RedactDatabaseURL(raw string) string {
+	at := strings.LastIndex(raw, "@")
+	if at <= 0 {
+		return raw
+	}
+	head := raw[:at]
+	scheme := strings.Index(head, "://")
+	if scheme < 0 {
+		return raw
+	}
+	colon := strings.LastIndex(head, ":")
+	if colon <= scheme+3 {
+		return raw
+	}
+	return head[:colon+1] + "***" + raw[at:]
 }
 
 func GetIntSetting(s string, def int) int {

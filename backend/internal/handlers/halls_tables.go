@@ -17,11 +17,14 @@ func (a *Handlers) handleTableCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Number   int     `json:"table_number"`
-		Capacity int     `json:"capacity"`
-		X        float64 `json:"x"`
-		Y        float64 `json:"y"`
-		Shape    string  `json:"shape"`
+		Number      int     `json:"table_number"`
+		Capacity    int     `json:"capacity"`
+		X           float64 `json:"x"`
+		Y           float64 `json:"y"`
+		Shape       string  `json:"shape"`
+		Width       float64 `json:"width"`
+		Height      float64 `json:"height"`
+		RotationDeg float64 `json:"rotation_deg"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Number < 1 || body.Capacity < 1 {
 		a.err(w, http.StatusBadRequest, "данные стола")
@@ -30,11 +33,18 @@ func (a *Handlers) handleTableCreate(w http.ResponseWriter, r *http.Request) {
 	if body.Shape == "" {
 		body.Shape = "circle"
 	}
+	tw, th := body.Width, body.Height
+	if tw <= 0 {
+		tw = 56
+	}
+	if th <= 0 {
+		th = 56
+	}
 	var id uuid.UUID
 	err = a.Pool.QueryRow(r.Context(), `
-		INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape)
-		VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-		hallID, body.Number, body.Capacity, body.X, body.Y, body.Shape).Scan(&id)
+		INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape, width, height, rotation_deg)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+		hallID, body.Number, body.Capacity, body.X, body.Y, body.Shape, tw, th, body.RotationDeg).Scan(&id)
 	if err != nil {
 		a.err(w, http.StatusConflict, "стол с таким номером уже есть")
 		return

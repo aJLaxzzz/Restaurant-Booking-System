@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { HallCanvas, TableShape } from '../components/HallCanvas';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { addHours, format, parse } from 'date-fns';
+import { addHours, format, isValid, parse } from 'date-fns';
 import { ru } from 'date-fns/locale';
 
 const SLOT_HOURS = 2;
@@ -20,15 +20,28 @@ function slots(): string[] {
 
 function buildStartISO(dateStr: string, timeStr: string): string {
   const day = parse(dateStr, 'yyyy-MM-dd', new Date());
+  if (!isValid(day)) {
+    throw new Error('Некорректная дата');
+  }
   const [hh, mm] = timeStr.split(':').map(Number);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) {
+    throw new Error('Некорректное время');
+  }
   day.setHours(hh, mm, 0, 0);
+  if (!isValid(day)) {
+    throw new Error('Некорректная дата и время');
+  }
   return day.toISOString();
 }
 
+type HallOpt = { id: string; name: string; restaurant: string; restaurant_id: string };
+
 export default function HallPage() {
   const { user } = useAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [hallId, setHallId] = useState<string | null>(null);
+  const [hallsList, setHallsList] = useState<HallOpt[]>([]);
+  const [hallsLoading, setHallsLoading] = useState(true);
   const editMode = Boolean(
     user && (user.role === 'admin' || user.role === 'owner') && searchParams.get('edit') === '1'
   );
@@ -46,10 +59,46 @@ export default function HallPage() {
 
   useEffect(() => {
     void (async () => {
-      const { data } = await api.get<{ id: string }[]>('/halls');
-      if (data.length) setHallId(data[0].id);
+      setHallsLoading(true);
+      const rParam = searchParams.get('restaurant_id');
+      const hParam = searchParams.get('hall_id');
+      let restaurantFilter = rParam || undefined;
+      if (hParam && !restaurantFilter) {
+        try {
+          const { data: hg } = await api.get<{ restaurant_id: string }>(`/halls/${hParam}`);
+          restaurantFilter = hg.restaurant_id;
+        } catch {
+          /* ignore */
+        }
+      }
+      try {
+        const { data: halls } = await api.get<HallOpt[]>('/halls', {
+          params: restaurantFilter ? { restaurant_id: restaurantFilter } : {},
+        });
+        setHallsList(halls);
+        if (halls.length === 0) {
+          setHallId(null);
+          return;
+        }
+        const pick = hParam && halls.some((x) => x.id === hParam) ? hParam : halls[0].id;
+        setHallId(pick);
+      } catch {
+        setHallsList([]);
+        setHallId(null);
+      } finally {
+        setHallsLoading(false);
+      }
     })();
-  }, []);
+  }, [searchParams]);
+
+  const onHallChange = (id: string) => {
+    setHallId(id);
+    const next = new URLSearchParams(searchParams);
+    next.set('hall_id', id);
+    const r = hallsList.find((h) => h.id === id)?.restaurant_id;
+    if (r) next.set('restaurant_id', r);
+    setSearchParams(next);
+  };
 
   const unlockIfNeeded = useCallback(async () => {
     if (!hallId || !selected || !user) return;
@@ -73,17 +122,20 @@ export default function HallPage() {
     try {
       const start = buildStartISO(date, time);
       const end = addHours(new Date(start), SLOT_HOURS).toISOString();
-      const { data } = await api.get<{ tables: { id: string; available_for_slot: boolean }[] }>(
+      const { data } = await api.get<{ tables: { id: string; available_for_slot: boolean }[] | null }>(
         `/halls/${hallId}/availability?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&guests=${guests}`
       );
       const m: Record<string, boolean> = {};
-      for (const t of data.tables) {
+      const list = Array.isArray(data.tables) ? data.tables : [];
+      for (const t of list) {
         m[t.id] = t.available_for_slot;
       }
       setAvailabilityById(m);
       setStep(2);
-    } catch {
-      setMsg('Не удалось загрузить доступность столов');
+    } catch (ex: unknown) {
+      const ax = ex as { response?: { data?: { error?: string } }; message?: string };
+      const apiErr = ax.response?.data?.error;
+      setMsg(apiErr || ax.message || 'Не удалось загрузить доступность столов');
     } finally {
       setLoadingAvail(false);
     }
@@ -167,7 +219,24 @@ export default function HallPage() {
     setStep(1);
   };
 
-  if (!hallId) return <p className="muted">Загрузка зала…</p>;
+  if (hallsLoading) {
+    return <p className="muted">Загрузка зала…</p>;
+  }
+
+  if (!hallId) {
+    return hallsList.length === 0 ? (
+      <div className="page-stack">
+        <div className="card">
+          <p className="muted">Нет залов для выбранного заведения.</p>
+          <Link to="/" className="btn">
+            К каталогу ресторанов
+          </Link>
+        </div>
+      </div>
+    ) : (
+      <p className="muted">Загрузка зала…</p>
+    );
+  }
 
   /* ——— Редактор зала ——— */
   if (editMode) {
@@ -239,6 +308,23 @@ export default function HallPage() {
       {step === 1 && (
         <div className="card">
           <h2>Когда и сколько гостей</h2>
+          {hallsList.length > 1 && hallId && (
+            <div className="field-block">
+              <label>Зал</label>
+              <select value={hallId} onChange={(e) => onHallChange(e.target.value)}>
+                {hallsList.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.restaurant} — {h.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {hallsList.length === 1 && hallId && (
+            <p className="muted compact">
+              {hallsList[0].restaurant} · {hallsList[0].name}
+            </p>
+          )}
           <div className="grid2">
             <div>
               <label>Дата</label>
@@ -351,6 +437,20 @@ function HallEditorPanel({ hallId }: { hallId: string }) {
   const { user } = useAuth();
   const [selected, setSelected] = useState<TableShape | null>(null);
   const [msg, setMsg] = useState('');
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  const deleteTable = async () => {
+    if (!selected) return;
+    if (!confirm(`Удалить стол №${selected.number}? Это действие необратимо.`)) return;
+    setMsg('');
+    try {
+      await api.delete(`/halls/${hallId}/tables/${selected.id}`);
+      setSelected(null);
+      setReloadNonce((n) => n + 1);
+    } catch {
+      setMsg('Не удалось удалить стол');
+    }
+  };
 
   const toggleBlock = async () => {
     if (!selected) return;
@@ -367,7 +467,13 @@ function HallEditorPanel({ hallId }: { hallId: string }) {
   return (
     <>
       <div className="card">
-        <HallCanvas hallId={hallId} editMode selectedId={selected?.id} onTableSelect={(t) => setSelected(t)} />
+        <HallCanvas
+          hallId={hallId}
+          editMode
+          selectedId={selected?.id}
+          onTableSelect={(t) => setSelected(t)}
+          reloadNonce={reloadNonce}
+        />
       </div>
       {selected && user && (
         <div className="card">
@@ -379,6 +485,9 @@ function HallEditorPanel({ hallId }: { hallId: string }) {
           <div className="btn-row">
             <button type="button" className={selected.status === 'blocked' ? 'btn' : 'secondary'} onClick={() => void toggleBlock()}>
               {selected.status === 'blocked' ? 'Снять блокировку' : 'Заблокировать стол'}
+            </button>
+            <button type="button" className="secondary" onClick={() => void deleteTable()}>
+              Удалить стол
             </button>
           </div>
           {msg && <p className="form-msg">{msg}</p>}

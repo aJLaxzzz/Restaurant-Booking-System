@@ -37,7 +37,10 @@ func (a *Handlers) RouterMonolith() http.Handler {
 	r := chi.NewRouter()
 	r.Use(UseStandardChi(a.Cfg))
 	r.Get("/health", a.handleHealth)
+	r.Get("/health/diag", a.handleHealthDiag)
 	r.Route("/api", func(r chi.Router) {
+		r.Get("/health/diag", a.handleHealthDiag)
+		r.Get("/files/*", a.handleUploadedFile)
 		a.MountAuth(r)
 		a.MountHall(r)
 		a.MountReservation(r)

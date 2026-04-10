@@ -28,7 +28,7 @@ func (a *Handlers) handleReservationsMy(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	defer rows.Close()
-	var out []map[string]any
+	out := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, tid, hid uuid.UUID
 		var st, end time.Time
@@ -81,28 +81,45 @@ func (a *Handlers) handleReservationsList(w http.ResponseWriter, r *http.Request
 		a.err(w, http.StatusForbidden, "только админ")
 		return
 	}
+	ridScope, err := a.restaurantUUIDForUser(r.Context(), u.ID, u.Role)
+	if err != nil || ridScope == uuid.Nil {
+		a.err(w, http.StatusForbidden, "нет привязки к заведению")
+		return
+	}
 	q := `
 		SELECT r.id, r.user_id, u.full_name, u.phone, r.table_id, t.table_number, r.start_time, r.end_time,
 		       r.guest_count, r.status, r.created_by
 		FROM reservations r
 		JOIN users u ON u.id = r.user_id
 		JOIN tables t ON t.id = r.table_id
-		WHERE 1=1`
-	args := []any{}
-	n := 1
+		JOIN halls h ON h.id = t.hall_id
+		WHERE h.restaurant_id = $1`
+	args := []any{ridScope}
+	n := 2
 	if st := r.URL.Query().Get("status"); st != "" {
 		q += ` AND r.status = $` + strconv.Itoa(n)
 		args = append(args, st)
 		n++
 	}
-	q += ` ORDER BY r.start_time DESC LIMIT 500`
+	// Панель админа/владельца: только брони на сегодня (календарный день Europe/Moscow), от ранних к поздним
+	loc, tzErr := time.LoadLocation("Europe/Moscow")
+	if tzErr != nil {
+		loc = time.UTC
+	}
+	now := time.Now().In(loc)
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	dayEnd := dayStart.Add(24 * time.Hour)
+	q += ` AND r.start_time >= $` + strconv.Itoa(n) + ` AND r.start_time < $` + strconv.Itoa(n+1)
+	args = append(args, dayStart, dayEnd)
+	n += 2
+	q += ` ORDER BY r.start_time ASC LIMIT 200`
 	rows, err := a.Pool.Query(r.Context(), q, args...)
 	if err != nil {
 		a.err(w, http.StatusInternalServerError, "БД")
 		return
 	}
 	defer rows.Close()
-	var out []map[string]any
+	out := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, uid, tid uuid.UUID
 		var fn, phone string
@@ -185,6 +202,22 @@ func (a *Handlers) handleReservationCreate(w http.ResponseWriter, r *http.Reques
 	}
 	if body.GuestCount < 1 || body.GuestCount > 12 || body.GuestCount > cap {
 		a.err(w, http.StatusBadRequest, "некорректное число гостей для стола")
+		return
+	}
+
+	var otherUserBooking uuid.UUID
+	err = a.Pool.QueryRow(r.Context(), `
+		SELECT id FROM reservations
+		WHERE user_id = $1
+		AND status NOT IN ('cancelled_by_client', 'cancelled_by_admin', 'no_show')
+		AND start_time < $3 AND end_time > $2
+		LIMIT 1`, u.ID, body.StartTime, endTime).Scan(&otherUserBooking)
+	if err == nil {
+		a.err(w, http.StatusConflict, "у вас уже есть бронь на это время (в том числе в другом ресторане)")
+		return
+	}
+	if err != pgx.ErrNoRows {
+		a.err(w, http.StatusInternalServerError, "БД")
 		return
 	}
 

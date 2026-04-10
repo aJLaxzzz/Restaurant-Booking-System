@@ -18,7 +18,8 @@ func (a *Handlers) MountAuth(r chi.Router) {
 
 // MountHall — залы, схема, столы, блокировки.
 func (a *Handlers) MountHall(r chi.Router) {
-	r.Get("/halls", a.handleHallsList)
+	a.MountRestaurantsPublic(r)
+	r.With(a.optionalAuth).Get("/halls", a.handleHallsList)
 	r.Get("/halls/{id}", a.handleHallGet)
 	r.With(a.optionalAuth).Get("/halls/{id}/layout", a.handleLayoutGet)
 	r.With(a.optionalAuth).Get("/halls/{id}/availability", a.handleHallAvailability)
@@ -37,10 +38,12 @@ func (a *Handlers) MountHall(r chi.Router) {
 func (a *Handlers) MountReservation(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(a.requireAuth)
+		a.MountOrders(r)
 		r.With(a.requireRoles("admin", "owner")).Get("/reservations", a.handleReservationsList)
 		r.With(a.requireRoles("client", "owner")).Post("/reservations", a.handleReservationCreate)
 		r.With(a.requireRoles("admin", "owner")).Post("/admin/reservations", a.handleAdminReservationCreate)
 		r.With(a.requireRoles("admin", "owner")).Get("/admin/clients", a.handleAdminClientsList)
+		r.With(a.requireRoles("admin", "owner")).Get("/admin/users/lookup", a.handleAdminClientLookup)
 		r.With(a.requireRoles("client", "owner")).Get("/reservations/my", a.handleReservationsMy)
 		r.Get("/reservations/{rid}", a.handleReservationGet)
 		r.With(a.requireRoles("admin", "owner")).Put("/reservations/{rid}", a.handleReservationUpdate)
@@ -49,6 +52,14 @@ func (a *Handlers) MountReservation(r chi.Router) {
 		r.With(a.requireRoles("admin", "owner")).Post("/reservations/{rid}/noshow", a.handleNoshow)
 		r.With(a.requireRoles("waiter", "admin", "owner")).Post("/reservations/{rid}/start-service", a.handleStartService)
 		r.With(a.requireRoles("waiter", "admin", "owner")).Post("/reservations/{rid}/complete", a.handleComplete)
+
+		r.With(a.requireRoles("owner")).Post("/owner/restaurant", a.handleOwnerRestaurantCreate)
+		r.With(a.requireRoles("owner", "admin")).Put("/owner/restaurant", a.handleRestaurantUpdate)
+		r.With(a.requireRoles("owner", "admin")).Post("/upload/restaurant-photo", a.handleUploadRestaurantPhoto)
+		r.With(a.requireRoles("owner", "admin")).Post("/upload/menu-item-photo", a.handleUploadMenuItemPhoto)
+		r.With(a.requireRoles("owner")).Post("/owner/staff/assign", a.handleOwnerStaffAssign)
+		r.With(a.requireRoles("admin")).Post("/admin/staff/assign", a.handleAdminStaffAssign)
+		r.With(a.requireRoles("admin")).Get("/admin/waiters", a.handleAdminWaitersList)
 
 		r.With(a.requireRoles("owner")).Get("/owner/analytics", a.handleOwnerAnalytics)
 		r.With(a.requireRoles("owner")).Get("/owner/finance", a.handleOwnerFinance)
@@ -63,6 +74,11 @@ func (a *Handlers) MountReservation(r chi.Router) {
 		r.With(a.requireRoles("waiter", "admin", "owner")).Get("/waiter/my-tables", a.handleWaiterTables)
 		r.With(a.requireRoles("waiter", "admin", "owner")).Get("/waiter/shifts", a.handleWaiterShifts)
 		r.With(a.requireRoles("waiter", "admin", "owner")).Post("/waiter/notes", a.handleWaiterNote)
+	})
+	r.Group(func(r chi.Router) {
+		r.Use(a.requireAuth)
+		r.Use(a.requireRoles("admin", "owner"))
+		a.MountMenuAdmin(r)
 	})
 }
 

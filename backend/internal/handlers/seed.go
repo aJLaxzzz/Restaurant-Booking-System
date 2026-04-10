@@ -15,6 +15,10 @@ func (a *Handlers) Seed(ctx context.Context) {
 	if hallCount == 0 {
 		a.seedBase(ctx)
 	}
+	// Всегда: дозаполнение по slug (trattoria / la-luna / sakura). Нужно после частичного seedBase
+	// (один ресторан, остальные INSERT с тем же slug упали) — иначе ветка hallCount==0 никогда
+	// не вызывала ensureExtra, и на главной оставался один ресторан.
+	a.ensureExtraDemoRestaurants(ctx)
 	var resCount int
 	_ = a.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM reservations`).Scan(&resCount)
 	if resCount == 0 {
@@ -26,33 +30,84 @@ func (a *Handlers) seedBase(ctx context.Context) {
 	hash, _ := bcrypt.GenerateFromPassword([]byte("Password1"), a.Cfg.BcryptCost)
 	hashStr := string(hash)
 
+	var owner1ID, owner2ID uuid.UUID
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash, full_name, phone, role, email_verified)
+		VALUES ('owner@demo.ru',$1,'Михаил Волков','+79001234567','owner',true)
+		ON CONFLICT (email) DO UPDATE SET email=EXCLUDED.email
+		RETURNING id`, hashStr).Scan(&owner1ID)
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash, full_name, phone, role, email_verified)
+		VALUES ('owner2@demo.ru',$1,'Анна Север','+79001234568','owner',true)
+		ON CONFLICT (email) DO UPDATE SET email=EXCLUDED.email
+		RETURNING id`, hashStr).Scan(&owner2ID)
+
+	var owner3ID uuid.UUID
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash, full_name, phone, role, email_verified)
+		VALUES ('owner3@demo.ru',$1,'Денис Океан','+79001234569','owner',true)
+		ON CONFLICT (email) DO UPDATE SET email=EXCLUDED.email
+		RETURNING id`, hashStr).Scan(&owner3ID)
+
 	rid := uuid.New()
-	_, _ = a.Pool.Exec(ctx, `INSERT INTO restaurants (id, name, address) VALUES ($1,'Bella Vista','Москва, ул. Тверская, 12')`, rid)
+	rid2 := uuid.New()
+	rid3 := uuid.New()
+	const photoTrattoria = "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1200&q=80"
+	const photoLuna = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=1200&q=80"
+	const photoSakura = "https://images.unsplash.com/photo-1579584425555-c7ce17fd4351?w=1200&q=80"
+	_, _ = a.Pool.Exec(ctx, `
+		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url)
+		VALUES ($1,'Траттория Тверская','Москва, ул. Тверская, 12','trattoria-tverskaya','Москва','Итальянская кухня и вино',$2,$3)`, rid, owner1ID, photoTrattoria)
+	_, _ = a.Pool.Exec(ctx, `
+		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url)
+		VALUES ($1,'La Luna','Санкт-Петербург, наб. реки Фонтанки, 20','la-luna','Санкт-Петербург','Европейская кухня',$2,$3)`, rid2, owner2ID, photoLuna)
+	_, _ = a.Pool.Exec(ctx, `
+		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url)
+		VALUES ($1,'Сакура Лайт','Москва, ул. Покровка, 3','sakura-lite','Москва','Японская кухня',$2,$3)`, rid3, owner3ID, photoSakura)
 
 	hidMain := uuid.New()
 	hidTerrace := uuid.New()
+	hidLuna := uuid.New()
+	hidSakura := uuid.New()
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Основной зал')`, hidMain, rid)
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Летняя терраса')`, hidTerrace, rid)
+	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Главный зал')`, hidLuna, rid2)
+	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Зал татами')`, hidSakura, rid3)
 
-	wallsMain := `[{"x1":0,"y1":0,"x2":920,"y2":0},{"x1":920,"y1":0,"x2":920,"y2":640},{"x1":920,"y1":640,"x2":0,"y2":640},{"x1":0,"y1":640,"x2":0,"y2":0}]`
-	wallsTerr := `[{"x1":0,"y1":0,"x2":720,"y2":0},{"x1":720,"y1":0,"x2":720,"y2":480},{"x1":720,"y1":480,"x2":0,"y2":480},{"x1":0,"y1":480,"x2":0,"y2":0}]`
+	wallsMain := `{"walls":[{"x1":0,"y1":0,"x2":920,"y2":0},{"x1":920,"y1":0,"x2":920,"y2":640},{"x1":920,"y1":640,"x2":0,"y2":640},{"x1":0,"y1":640,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Панорамные окна","x":60,"y":40,"w":200,"h":32},{"type":"window_band","x":0,"y":0,"w":920,"h":24}]}`
+	wallsTerr := `{"walls":[{"x1":0,"y1":0,"x2":720,"y2":0},{"x1":720,"y1":0,"x2":720,"y2":480},{"x1":720,"y1":480,"x2":0,"y2":480},{"x1":0,"y1":480,"x2":0,"y2":0}],"decorations":[]}`
+	wallsLuna := `{"walls":[{"x1":0,"y1":0,"x2":800,"y2":0},{"x1":800,"y1":0,"x2":800,"y2":560},{"x1":800,"y1":560,"x2":0,"y2":560},{"x1":0,"y1":560,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Центр зала","x":360,"y":260,"w":120,"h":28}]}`
+	wallsSakura := `{"walls":[{"x1":0,"y1":0,"x2":680,"y2":0},{"x1":680,"y1":0,"x2":680,"y2":520},{"x1":680,"y1":520,"x2":0,"y2":520},{"x1":0,"y1":520,"x2":0,"y2":0}],"decorations":[]}`
 	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidMain, wallsMain)
 	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidTerrace, wallsTerr)
+	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidLuna, wallsLuna)
+	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidSakura, wallsSakura)
 
-	// Основной зал: сетка 4×3
 	mainTables := []struct {
-		num  int
-		cap  int
-		x, y float64
+		num        int
+		cap        int
+		x, y       float64
+		shape      string
+		w, h       float64
+		rot        float64
 	}{
-		{1, 2, 100, 100}, {2, 4, 260, 100}, {3, 4, 420, 100}, {4, 6, 580, 100},
-		{5, 4, 100, 260}, {6, 2, 260, 260}, {7, 8, 420, 260}, {8, 4, 580, 260},
-		{9, 4, 100, 420}, {10, 6, 280, 420}, {11, 4, 460, 420}, {12, 2, 620, 420},
+		{1, 2, 100, 100, "round", 52, 52, 0},
+		{2, 4, 260, 100, "rect", 88, 64, 0},
+		{3, 4, 420, 100, "rect", 88, 64, 0},
+		{4, 6, 580, 100, "ellipse", 112, 72, 0},
+		{5, 4, 100, 260, "rect", 88, 64, 12},
+		{6, 2, 260, 260, "round", 48, 48, 0},
+		{7, 8, 420, 260, "rect", 120, 88, 0},
+		{8, 4, 580, 260, "rect", 88, 64, -8},
+		{9, 4, 100, 420, "rect", 88, 64, 0},
+		{10, 6, 280, 420, "ellipse", 104, 80, 0},
+		{11, 4, 460, 420, "rect", 88, 64, 0},
+		{12, 2, 620, 420, "round", 48, 48, 0},
 	}
 	for _, t := range mainTables {
 		_, _ = a.Pool.Exec(ctx, `
-			INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape, status)
-			VALUES ($1,$2,$3,$4,$5,'circle','available')`, hidMain, t.num, t.cap, t.x, t.y)
+			INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape, status, width, height, rotation_deg)
+			VALUES ($1,$2,$3,$4,$5,$6,'available',$7,$8,$9)`, hidMain, t.num, t.cap, t.x, t.y, t.shape, t.w, t.h, t.rot)
 	}
 
 	// Терраса: 6 столов, один заблокирован
@@ -72,28 +127,60 @@ func (a *Handlers) seedBase(ctx context.Context) {
 	}
 	for _, t := range terrTables {
 		_, _ = a.Pool.Exec(ctx, `
-			INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape, status, block_reason)
-			VALUES ($1,$2,$3,$4,$5,'rect',$6,$7,$8)`, hidTerrace, t.num, t.cap, t.x, t.y, t.st, t.br)
+			INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape, status, block_reason, width, height)
+			VALUES ($1,$2,$3,$4,$5,'rect',$6,$7,88,88)`, hidTerrace, t.num, t.cap, t.x, t.y, t.st, t.br)
 	}
 
-	staff := []struct {
-		email, name, role string
+	lunaTables := []struct {
+		n   int
+		cap int
+		x, y float64
 	}{
-		{"owner@demo.ru", "Михаил Волков", "owner"},
-		{"admin@demo.ru", "Елена Орлова", "admin"},
-		{"waiter@demo.ru", "Дмитрий Козлов", "waiter"},
-		{"waiter2@demo.ru", "Светлана Морозова", "waiter"},
+		{1, 2, 140, 120}, {2, 4, 300, 140}, {3, 4, 480, 160},
+		{4, 4, 200, 300}, {5, 8, 420, 320},
+	}
+	for _, t := range lunaTables {
+		_, _ = a.Pool.Exec(ctx, `
+			INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape, status, width, height)
+			VALUES ($1,$2,$3,$4,$5,'rect','available',80,72)`, hidLuna, t.n, t.cap, t.x, t.y)
+	}
+
+	sakuraTables := []struct {
+		n   int
+		cap int
+		x, y float64
+	}{
+		{1, 2, 120, 100}, {2, 4, 280, 120}, {3, 4, 440, 140}, {4, 6, 200, 300},
+	}
+	for _, t := range sakuraTables {
+		_, _ = a.Pool.Exec(ctx, `
+			INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape, status, width, height)
+			VALUES ($1,$2,$3,$4,$5,'rect','available',88,72)`, hidSakura, t.n, t.cap, t.x, t.y)
+	}
+	staff := []struct {
+		email, name, role, phone string
+		rid                      uuid.UUID
+	}{
+		{"admin@demo.ru", "Елена Орлова", "admin", "+79001234567", rid},
+		{"waiter@demo.ru", "Дмитрий Козлов", "waiter", "+79001234567", rid},
+		{"waiter2@demo.ru", "Светлана Морозова", "waiter", "+79001234567", rid},
+		{"waiter3@demo.ru", "Павел Невский", "waiter", "+79001234571", rid2},
+		{"waiter4@demo.ru", "Юлия Сакура", "waiter", "+79001234572", rid3},
 	}
 	for _, u := range staff {
 		_, err := a.Pool.Exec(ctx, `
-			INSERT INTO users (email, password_hash, full_name, phone, role, email_verified)
-			VALUES ($1,$2,$3,'+79001234567',$4,true)
-			ON CONFLICT (email) DO NOTHING`,
-			u.email, hashStr, u.name, u.role)
+			INSERT INTO users (email, password_hash, full_name, phone, role, email_verified, restaurant_id)
+			VALUES ($1,$2,$3,$4,$5,true,$6)
+			ON CONFLICT (email) DO UPDATE SET restaurant_id = EXCLUDED.restaurant_id, phone = EXCLUDED.phone`,
+			u.email, hashStr, u.name, u.phone, u.role, u.rid)
 		if err != nil {
 			log.Printf("seed staff %s: %v", u.email, err)
 		}
 	}
+
+	a.seedMenuTrattoria(ctx, rid)
+	a.seedMenuLaLuna(ctx, rid2)
+	a.seedMenuSakura(ctx, rid3)
 
 	clients := []struct {
 		email, name, phone string
@@ -114,6 +201,20 @@ func (a *Handlers) seedBase(ctx context.Context) {
 		{"client13@demo.ru", "Дарья Лебедева", "+79161230014"},
 		{"client14@demo.ru", "Константин Захаров", "+79161230015"},
 		{"client15@demo.ru", "Юлия Белова", "+79161230016"},
+		{"client16@demo.ru", "Олег Степанов", "+79161230017"},
+		{"client17@demo.ru", "Вера Крылова", "+79161230018"},
+		{"client18@demo.ru", "Максим Орлов", "+79161230019"},
+		{"client19@demo.ru", "Софья Зайцева", "+79161230020"},
+		{"client20@demo.ru", "Илья Громов", "+79161230021"},
+		{"client21@demo.ru", "Алина Волкова", "+79161230022"},
+		{"client22@demo.ru", "Тимур Алиев", "+79161230023"},
+		{"client23@demo.ru", "Елена Сидорова", "+79161230024"},
+		{"client24@demo.ru", "Артём Ким", "+79161230025"},
+		{"client25@demo.ru", "Полина Чернова", "+79161230026"},
+		{"client26@demo.ru", "Глеб Фролов", "+79161230027"},
+		{"client27@demo.ru", "Диана Рыбакова", "+79161230028"},
+		{"client28@demo.ru", "Станислав Мартынов", "+79161230029"},
+		{"client29@demo.ru", "Ксения Логинова", "+79161230030"},
 	}
 	for _, u := range clients {
 		_, err := a.Pool.Exec(ctx, `
@@ -126,7 +227,83 @@ func (a *Handlers) seedBase(ctx context.Context) {
 		}
 	}
 
-	log.Println("БД: ресторан, 2 зала, 18 столов, staff + 16 клиентов (пароль Password1)")
+	log.Println("БД: 3 демо-ресторана, залы, столы, меню, staff + клиенты (пароль Password1)")
+}
+
+func (a *Handlers) seedMenuTrattoria(ctx context.Context, restaurantID uuid.UUID) {
+	var catFood, catDrink, subPizza uuid.UUID
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO menu_categories (restaurant_id, name, sort_order) VALUES ($1,'Кухня',0) RETURNING id`, restaurantID).Scan(&catFood)
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO menu_categories (restaurant_id, name, sort_order) VALUES ($1,'Бар',1) RETURNING id`, restaurantID).Scan(&catDrink)
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO menu_categories (restaurant_id, parent_id, name, sort_order) VALUES ($1,$2,'Пицца',0) RETURNING id`, restaurantID, catFood).Scan(&subPizza)
+
+	items := []struct {
+		cat uuid.UUID
+		n   string
+		pr  int
+	}{
+		{subPizza, "Маргарита", 69000},
+		{subPizza, "Четыре сыра", 89000},
+		{catFood, "Паста карбонара", 65000},
+		{catFood, "Тирамису", 42000},
+		{catDrink, "Домашний лимонад", 29000},
+		{catDrink, "Эспрессо", 18000},
+	}
+	for _, it := range items {
+		_, _ = a.Pool.Exec(ctx, `
+			INSERT INTO menu_items (restaurant_id, category_id, name, price_kopecks, sort_order)
+			VALUES ($1,$2,$3,$4,0)`, restaurantID, it.cat, it.n, it.pr)
+	}
+}
+
+func (a *Handlers) seedMenuLaLuna(ctx context.Context, restaurantID uuid.UUID) {
+	var catMain, catBar uuid.UUID
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO menu_categories (restaurant_id, name, sort_order) VALUES ($1,'Европейская кухня',0) RETURNING id`, restaurantID).Scan(&catMain)
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO menu_categories (restaurant_id, name, sort_order) VALUES ($1,'Напитки',1) RETURNING id`, restaurantID).Scan(&catBar)
+	items := []struct {
+		cat uuid.UUID
+		n   string
+		pr  int
+	}{
+		{catMain, "Утиная грудка с вишнёвым соусом", 78000},
+		{catMain, "Ризотто с белыми грибами", 72000},
+		{catMain, "Тартар из лосося", 69000},
+		{catBar, "Капучино", 22000},
+		{catBar, "Домашний лимонад", 31000},
+	}
+	for _, it := range items {
+		_, _ = a.Pool.Exec(ctx, `
+			INSERT INTO menu_items (restaurant_id, category_id, name, price_kopecks, sort_order)
+			VALUES ($1,$2,$3,$4,0)`, restaurantID, it.cat, it.n, it.pr)
+	}
+}
+
+func (a *Handlers) seedMenuSakura(ctx context.Context, restaurantID uuid.UUID) {
+	var catRoll, catHot uuid.UUID
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO menu_categories (restaurant_id, name, sort_order) VALUES ($1,'Роллы и суши',0) RETURNING id`, restaurantID).Scan(&catRoll)
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO menu_categories (restaurant_id, name, sort_order) VALUES ($1,'Горячее',1) RETURNING id`, restaurantID).Scan(&catHot)
+	items := []struct {
+		cat uuid.UUID
+		n   string
+		pr  int
+	}{
+		{catRoll, "Филадельфия", 59000},
+		{catRoll, "Калифорния", 52000},
+		{catHot, "Рамен с курицей", 48000},
+		{catHot, "Тяхан с морепродуктами", 55000},
+		{catHot, "Мисо-суп", 29000},
+	}
+	for _, it := range items {
+		_, _ = a.Pool.Exec(ctx, `
+			INSERT INTO menu_items (restaurant_id, category_id, name, price_kopecks, sort_order)
+			VALUES ($1,$2,$3,$4,0)`, restaurantID, it.cat, it.n, it.pr)
+	}
 }
 
 func strPtr(s string) *string { return &s }
@@ -246,9 +423,14 @@ func (a *Handlers) seedLifeData(ctx context.Context) {
 		})
 	}
 
-	// Сегодня и ближайшие дни: активные статусы
-	todayLunch := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, time.UTC)
-	todayEve := time.Date(now.Year(), now.Month(), now.Day(), 18, 30, 0, 0, time.UTC)
+	// Сегодня (календарный день по Москве, как в списке броней админа)
+	loc, errLoc := time.LoadLocation("Europe/Moscow")
+	if errLoc != nil {
+		loc = time.UTC
+	}
+	nowMsk := now.In(loc)
+	todayLunch := time.Date(nowMsk.Year(), nowMsk.Month(), nowMsk.Day(), 12, 0, 0, 0, loc).UTC()
+	todayEve := time.Date(nowMsk.Year(), nowMsk.Month(), nowMsk.Day(), 18, 30, 0, 0, loc).UTC()
 
 	specs = append(specs, spec{
 		ti: 0, ci: 1, start: todayLunch, end: todayLunch.Add(slot), status: "seated", guests: 3,
@@ -406,7 +588,86 @@ func (a *Handlers) seedLifeData(ctx context.Context) {
 			AND r.start_time <= NOW() AND r.end_time >= NOW()
 		)`)
 
+	a.seedClosedOrdersForCompleted(ctx)
+
 	log.Printf("Живые данные: брони и связанные записи (успешных вставок: %d)", inserted)
+}
+
+// seedClosedOrdersForCompleted добавляет закрытые счета, строки меню и платежи tab по завершённым визитам (аналитика, Excel).
+func (a *Handlers) seedClosedOrdersForCompleted(ctx context.Context) {
+	rows, err := a.Pool.Query(ctx, `
+		SELECT r.id, COALESCE(r.completed_at, r.end_time), h.restaurant_id
+		FROM reservations r
+		JOIN tables t ON t.id = r.table_id
+		JOIN halls h ON h.id = t.hall_id
+		WHERE r.status = 'completed'
+		AND r.completed_at IS NOT NULL
+		AND NOT EXISTS (SELECT 1 FROM reservation_orders ro WHERE ro.reservation_id = r.id)
+		ORDER BY r.completed_at DESC
+		LIMIT 80`)
+	if err != nil {
+		log.Printf("seedClosedOrdersForCompleted: %v", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var resID uuid.UUID
+		var completed time.Time
+		var restID uuid.UUID
+		if err := rows.Scan(&resID, &completed, &restID); err != nil {
+			continue
+		}
+		itemRows, err := a.Pool.Query(ctx, `
+			SELECT id, price_kopecks FROM menu_items
+			WHERE restaurant_id = $1
+			ORDER BY random()
+			LIMIT 4`, restID)
+		if err != nil {
+			continue
+		}
+		type mi struct {
+			id    uuid.UUID
+			price int
+		}
+		var items []mi
+		for itemRows.Next() {
+			var m mi
+			_ = itemRows.Scan(&m.id, &m.price)
+			items = append(items, m)
+		}
+		itemRows.Close()
+		if len(items) == 0 {
+			continue
+		}
+		nLines := 2
+		if len(items) < 2 {
+			nLines = len(items)
+		}
+		var oid uuid.UUID
+		if err := a.Pool.QueryRow(ctx, `
+			INSERT INTO reservation_orders (reservation_id, status, created_at, updated_at)
+			VALUES ($1, 'closed', $2, $2)
+			RETURNING id`, resID, completed).Scan(&oid); err != nil {
+			continue
+		}
+		var tabTotal int64
+		for i := 0; i < nLines; i++ {
+			qty := 1 + (i % 2)
+			it := items[i%len(items)]
+			lineSum := int64(qty * it.price)
+			tabTotal += lineSum
+			_, _ = a.Pool.Exec(ctx, `
+				INSERT INTO order_lines (order_id, menu_item_id, quantity, guest_label)
+				VALUES ($1, $2, $3, $4)`,
+				oid, it.id, qty, "гость")
+		}
+		if tabTotal > 0 {
+			_, _ = a.Pool.Exec(ctx, `
+				INSERT INTO payments (reservation_id, reservation_order_id, amount_kopecks, status, idempotency_key, purpose, gateway_payment_id)
+				VALUES ($1, $2, $3, 'succeeded', $4, 'tab', $5)`,
+				resID, oid, tabTotal, uuid.New(), "seed_tab_"+oid.String()[:12])
+		}
+	}
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
