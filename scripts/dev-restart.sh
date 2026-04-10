@@ -45,15 +45,17 @@ nohup env DATABASE_URL="$DATABASE_URL" REDIS_ADDR="$REDIS_ADDR" RABBITMQ_URL="$R
   go run ./cmd/api >>"$API_LOG" 2>&1 &
 echo $! >"${TMPDIR:-/tmp}/rbs-api.pid"
 
-for i in $(seq 1 40); do
+for i in $(seq 1 120); do
   # Не доверяем только /health: nginx отдаёт «gateway ok» и маскирует отсутствие монолита.
   if curl -sf "http://localhost${ADDR}/health/diag" 2>/dev/null | grep -q current_database; then
     echo "==> Монолит API готов. Диагностика: curl -s http://localhost${ADDR}/health/diag"
     break
   fi
   sleep 0.25
-  if [[ "$i" -eq 40 ]]; then
+  if [[ "$i" -eq 120 ]]; then
     echo "Таймаут: монолит не ответил JSON с current_database. См. $API_LOG"
+    echo "---- последние строки $API_LOG ----"
+    tail -40 "$API_LOG" 2>/dev/null || true
     echo "Подсказка: не запускайте docker nginx на :8080 вместе с монолитом; см. scripts/dev-restart.sh"
     exit 1
   fi
