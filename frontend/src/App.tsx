@@ -15,6 +15,7 @@ import AdminManualPage from './pages/admin/AdminManualPage';
 import AdminMenuPositionsPage from './pages/admin/AdminMenuPositionsPage';
 import OwnerPage from './pages/OwnerPage';
 import WaiterPage from './pages/WaiterPage';
+import SuperadminPage from './pages/SuperadminPage';
 
 function Private({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -59,6 +60,12 @@ function NavBar() {
                 Схема зала
               </Link>
             </>
+          )}
+
+          {user?.role === 'superadmin' && (
+            <Link to="/superadmin" className={loc.pathname.startsWith('/superadmin') ? 'active' : ''}>
+              Суперадмин
+            </Link>
           )}
 
           {user?.role === 'owner' && (
@@ -111,6 +118,7 @@ function roleLabel(role: string) {
     admin: 'Админ',
     owner: 'Владелец',
     waiter: 'Официант',
+    superadmin: 'Суперадмин',
   };
   return m[role] || role;
 }
@@ -122,7 +130,19 @@ function MeOrRedirect() {
   if (user.role === 'owner') return <Navigate to="/owner" replace />;
   if (user.role === 'admin') return <Navigate to="/admin" replace />;
   if (user.role === 'waiter') return <Navigate to="/waiter" replace />;
-  return <MyReservations />;
+  if (user.role === 'superadmin') return <Navigate to="/superadmin" replace />;
+  return (
+    <>
+      {user.role === 'client' && user.owner_application_status === 'pending' && (
+        <div className="card" style={{ marginBottom: '1rem' }}>
+          <p className="form-msg" style={{ margin: 0 }}>
+            Заявка на роль владельца на рассмотрении. После одобрения вы сможете открыть раздел «Владелец».
+          </p>
+        </div>
+      )}
+      <MyReservations />
+    </>
+  );
 }
 
 export default function App() {
@@ -174,6 +194,16 @@ export default function App() {
               <Private>
                 <RoleGate allow={['owner']}>
                   <OwnerPage />
+                </RoleGate>
+              </Private>
+            }
+          />
+          <Route
+            path="/superadmin"
+            element={
+              <Private>
+                <RoleGate allow={['superadmin']}>
+                  <SuperadminPage />
                 </RoleGate>
               </Private>
             }

@@ -9,6 +9,7 @@ export type User = {
   role: string;
   status: string;
   restaurant_id?: string;
+  owner_application_status?: string;
 };
 
 type AuthCtx = {

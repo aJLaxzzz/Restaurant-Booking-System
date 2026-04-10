@@ -112,7 +112,7 @@ func (a *Handlers) handleRestaurantUpdate(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if u.Role != "owner" && u.Role != "admin" {
+	if u.Role != "owner" && u.Role != "admin" && u.Role != "superadmin" {
 		a.err(w, http.StatusForbidden, "нет доступа")
 		return
 	}
@@ -223,7 +223,7 @@ func (a *Handlers) handleUploadRestaurantPhoto(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return
 	}
-	if u.Role != "owner" && u.Role != "admin" {
+	if u.Role != "owner" && u.Role != "admin" && u.Role != "superadmin" {
 		a.err(w, http.StatusForbidden, "нет доступа")
 		return
 	}
@@ -250,7 +250,7 @@ func (a *Handlers) handleUploadMenuItemPhoto(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
-	if u.Role != "owner" && u.Role != "admin" {
+	if u.Role != "owner" && u.Role != "admin" && u.Role != "superadmin" {
 		a.err(w, http.StatusForbidden, "нет доступа")
 		return
 	}

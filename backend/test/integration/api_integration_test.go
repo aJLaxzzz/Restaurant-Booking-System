@@ -297,6 +297,19 @@ func TestFullAPIIntegration(t *testing.T) {
 		mustOK(t, doJSON(t, c, "GET", q, "", nil), http.StatusOK)
 	})
 
+	t.Run("availability_past_returns_400", func(t *testing.T) {
+		start := time.Now().UTC().Add(-72 * time.Hour).Format(time.RFC3339)
+		end := time.Now().UTC().Add(-70 * time.Hour).Format(time.RFC3339)
+		q := fmt.Sprintf("/api/halls/%s/availability?start=%s&end=%s&guests=2",
+			url.PathEscape(hallID), url.QueryEscape(start), url.QueryEscape(end))
+		rs := doJSON(t, c, "GET", q, "", nil)
+		b, _ := io.ReadAll(rs.Body)
+		_ = rs.Body.Close()
+		if rs.StatusCode != http.StatusBadRequest {
+			t.Fatalf("ожидали 400 для прошлого слота, получили %d: %s", rs.StatusCode, string(b))
+		}
+	})
+
 	t.Run("overlap_second_booking_same_user", func(t *testing.T) {
 		tok := login(t, c, "client3@demo.ru", "Password1")
 		body := map[string]any{
@@ -435,7 +448,11 @@ func TestFullAPIIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		happyResID = created["reservation_id"].(string)
-		happyPayID = created["payment_id"].(string)
+		payAny, ok := created["payment_id"].(string)
+		if !ok || payAny == "" {
+			t.Fatal("ожидался payment_id (или включите deposit_percent > 0 в настройках)")
+		}
+		happyPayID = payAny
 
 		sim := doJSON(t, c, "POST", "/api/payments/checkout/"+url.PathEscape(happyPayID)+"/simulate", tok, nil)
 		mustOK(t, sim, http.StatusOK)
@@ -465,15 +482,23 @@ func TestFullAPIIntegration(t *testing.T) {
 		mustOK(t, line, http.StatusCreated)
 
 		tab := doJSON(t, c, "POST", "/api/reservations/"+url.PathEscape(happyResID)+"/order/checkout", tok, nil)
-		tabBody := mustOK(t, tab, http.StatusCreated)
-		var tabPay map[string]any
-		_ = json.Unmarshal(tabBody, &tabPay)
-		tabPID, _ := tabPay["payment_id"].(string)
-		if tabPID == "" {
-			t.Fatal("нет payment_id для счёта")
+		tabRaw, _ := io.ReadAll(tab.Body)
+		_ = tab.Body.Close()
+		if tab.StatusCode != http.StatusCreated && tab.StatusCode != http.StatusOK {
+			t.Fatalf("checkout счёта: %d %s", tab.StatusCode, string(tabRaw))
 		}
-		tabSim := doJSON(t, c, "POST", "/api/payments/checkout/"+url.PathEscape(tabPID)+"/simulate", tok, nil)
-		mustOK(t, tabSim, http.StatusOK)
+		var tabPay map[string]any
+		_ = json.Unmarshal(tabRaw, &tabPay)
+		if closed, _ := tabPay["closed_without_payment"].(bool); closed {
+			// сумма заказа полностью покрыта учтённым депозитом
+		} else {
+			tabPID, _ := tabPay["payment_id"].(string)
+			if tabPID == "" {
+				t.Fatal("нет payment_id для счёта")
+			}
+			tabSim := doJSON(t, c, "POST", "/api/payments/checkout/"+url.PathEscape(tabPID)+"/simulate", tok, nil)
+			mustOK(t, tabSim, http.StatusOK)
+		}
 
 		cmp := doJSON(t, c, "POST", "/api/reservations/"+url.PathEscape(happyResID)+"/complete", waiterTok, nil)
 		mustOK(t, cmp, http.StatusNoContent)

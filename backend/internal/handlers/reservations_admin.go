@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -19,15 +21,45 @@ func (a *Handlers) handleReservationUpdate(w http.ResponseWriter, r *http.Reques
 	}
 	var body struct {
 		AssignedWaiter *uuid.UUID `json:"assigned_waiter_id"`
+		GuestCount     *int       `json:"guest_count"`
+		Comment        *string    `json:"comment"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	if u.Role != "admin" && u.Role != "owner" {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		a.err(w, http.StatusBadRequest, "JSON")
+		return
+	}
+	if u.Role != "admin" && u.Role != "owner" && u.Role != "superadmin" {
 		a.err(w, http.StatusForbidden, "нет прав")
 		return
 	}
-	_, err = a.Pool.Exec(r.Context(), `
-		UPDATE reservations SET assigned_waiter_id = COALESCE($2, assigned_waiter_id), updated_at=NOW() WHERE id=$1`,
-		rid, body.AssignedWaiter)
+	if body.GuestCount != nil && (*body.GuestCount < 1 || *body.GuestCount > 12) {
+		a.err(w, http.StatusBadRequest, "guest_count")
+		return
+	}
+	var sets []string
+	args := []any{rid}
+	ph := 2
+	if body.AssignedWaiter != nil {
+		sets = append(sets, fmt.Sprintf("assigned_waiter_id=$%d", ph))
+		args = append(args, *body.AssignedWaiter)
+		ph++
+	}
+	if body.GuestCount != nil {
+		sets = append(sets, fmt.Sprintf("guest_count=$%d", ph))
+		args = append(args, *body.GuestCount)
+		ph++
+	}
+	if body.Comment != nil {
+		sets = append(sets, fmt.Sprintf("comment=$%d", ph))
+		args = append(args, *body.Comment)
+		ph++
+	}
+	if len(sets) == 0 {
+		a.err(w, http.StatusBadRequest, "нет данных")
+		return
+	}
+	q := "UPDATE reservations SET " + strings.Join(sets, ", ") + ", updated_at=NOW() WHERE id=$1"
+	_, err = a.Pool.Exec(r.Context(), q, args...)
 	if err != nil {
 		a.err(w, http.StatusInternalServerError, "ошибка")
 		return
@@ -53,7 +85,7 @@ func (a *Handlers) handleReservationCancel(w http.ResponseWriter, r *http.Reques
 		a.err(w, http.StatusNotFound, "не найдено")
 		return
 	}
-	if (u.Role == "client" || u.Role == "owner") && userID != u.ID {
+	if u.Role != "superadmin" && (u.Role == "client" || u.Role == "owner") && userID != u.ID {
 		a.err(w, http.StatusForbidden, "нет доступа")
 		return
 	}
@@ -185,22 +217,36 @@ func (a *Handlers) handleComplete(w http.ResponseWriter, r *http.Request) {
 
 func (a *Handlers) handleAdminReservationCreate(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
-	ridScope, err := a.restaurantUUIDForUser(r.Context(), u.ID, u.Role)
-	if err != nil || ridScope == uuid.Nil {
-		a.err(w, http.StatusForbidden, "нет привязки к заведению")
-		return
-	}
-
 	var body struct {
-		UserID     uuid.UUID  `json:"user_id"`
-		TableID    *uuid.UUID `json:"table_id"`
-		HallID     *uuid.UUID `json:"hall_id"`
-		StartTime  time.Time  `json:"start_time"`
-		GuestCount int        `json:"guest_count"`
-		Comment    string     `json:"comment"`
+		RestaurantID *uuid.UUID `json:"restaurant_id"`
+		UserID       uuid.UUID  `json:"user_id"`
+		TableID      *uuid.UUID `json:"table_id"`
+		HallID       *uuid.UUID `json:"hall_id"`
+		StartTime    time.Time  `json:"start_time"`
+		GuestCount   int        `json:"guest_count"`
+		Comment      string     `json:"comment"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		a.err(w, http.StatusBadRequest, "JSON")
+		return
+	}
+	var ridScope uuid.UUID
+	var err error
+	if u.Role == "superadmin" {
+		if body.RestaurantID == nil || *body.RestaurantID == uuid.Nil {
+			a.err(w, http.StatusBadRequest, "нужен restaurant_id")
+			return
+		}
+		ridScope = *body.RestaurantID
+	} else {
+		ridScope, err = a.restaurantUUIDForUser(r.Context(), u.ID, u.Role)
+		if err != nil || ridScope == uuid.Nil {
+			a.err(w, http.StatusForbidden, "нет привязки к заведению")
+			return
+		}
+	}
+	if body.StartTime.Before(time.Now().UTC().Add(-90 * time.Second)) {
+		a.err(w, http.StatusBadRequest, "нельзя назначить бронь в прошлое")
 		return
 	}
 	slot := a.getSettingInt(r.Context(), "default_slot_duration_hours", 2)

@@ -107,6 +107,21 @@ services:
       hall:
         condition: service_started
 
+  notify-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: notify-worker
+    environment:
+      <<: *common-env
+      ADDR: :8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+
   nginx:
     image: nginx:alpine
     ports:
@@ -114,10 +129,14 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - auth
-      - hall
-      - reservation
-      - payment
+      auth:
+        condition: service_healthy
+      hall:
+        condition: service_healthy
+      reservation:
+        condition: service_healthy
+      payment:
+        condition: service_healthy
 
 volumes:
   pgdata:

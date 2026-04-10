@@ -6,7 +6,7 @@ import { api } from '../api';
 function menuLoadErrorMessage(e: unknown): string {
   if (axios.isAxiosError(e)) {
     if (e.response?.status === 403) {
-      return 'Нет привязки к заведению. Попросите владельца добавить вас в «Команда» в кабинете владельца или войдите под демо-админом (см. docs/DEMO_TEST_ACCOUNTS.md).';
+      return 'Нет привязки к заведению. Попросите владельца добавить вас в «Команда» в кабинете владельца или войдите под демо-админом (см. docs/DEMO_USERS.md).';
     }
     if (e.response?.status === 401) {
       return 'Сессия истекла — войдите снова.';

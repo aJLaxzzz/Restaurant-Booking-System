@@ -215,6 +215,10 @@ func (a *Handlers) handleHallAvailability(w http.ResponseWriter, r *http.Request
 	if guests < 1 {
 		guests = 1
 	}
+	if msg := bookingStartNotAllowed(start); msg != "" {
+		a.err(w, http.StatusBadRequest, msg)
+		return
+	}
 	rows, err := a.Pool.Query(r.Context(), `
 		SELECT id, table_number, capacity, x_coordinate, y_coordinate,
 		       COALESCE(shape, 'circle'), COALESCE(status, 'available')

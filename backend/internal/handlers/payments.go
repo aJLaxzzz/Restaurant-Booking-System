@@ -68,6 +68,19 @@ func (a *Handlers) finalizePaymentSuccess(ctx context.Context, paymentID uuid.UU
 		_ = a.publishEvent(ctx, "payment.succeeded", map[string]any{
 			"payment_id": paymentID.String(), "reservation_id": resID.String(), "purpose": "tab",
 		})
+		_ = a.publishEvent(ctx, "payment.tab_succeeded", map[string]any{
+			"payment_id": paymentID.String(), "reservation_id": resID.String(),
+		})
+		return nil
+	}
+
+	if purpose == "tip" {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		_ = a.publishEvent(ctx, "payment.succeeded", map[string]any{
+			"payment_id": paymentID.String(), "reservation_id": resID.String(), "purpose": "tip",
+		})
 		return nil
 	}
 
@@ -97,6 +110,9 @@ func (a *Handlers) finalizePaymentSuccess(ctx context.Context, paymentID uuid.UU
 	})
 	_ = a.publishEvent(ctx, "payment.succeeded", map[string]any{
 		"payment_id": paymentID.String(), "reservation_id": resID.String(),
+	})
+	_ = a.publishEvent(ctx, "reservation.confirmed", map[string]any{
+		"reservation_id": resID.String(), "payment_id": paymentID.String(),
 	})
 	return nil
 }

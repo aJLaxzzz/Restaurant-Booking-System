@@ -5,6 +5,9 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import { addHours, format, isValid, parse } from 'date-fns';
 import { ru } from 'date-fns/locale';
+import { formatInTimeZone, toDate } from 'date-fns-tz';
+
+const MSK_TZ = 'Europe/Moscow';
 
 type BookingDefaults = {
   default_slot_duration_hours: number;
@@ -39,20 +42,32 @@ function buildTimeSlots(openH: number, closeH: number, slotMinutes: number): str
   return out;
 }
 
-function buildStartISO(dateStr: string, timeStr: string): string {
-  const day = parse(dateStr, 'yyyy-MM-dd', new Date());
-  if (!isValid(day)) {
-    throw new Error('Некорректная дата');
-  }
-  const [hh, mm] = timeStr.split(':').map(Number);
-  if (!Number.isFinite(hh) || !Number.isFinite(mm)) {
-    throw new Error('Некорректное время');
-  }
-  day.setHours(hh, mm, 0, 0);
-  if (!isValid(day)) {
+/** Начало слота в ISO UTC: дата и время интерпретируются как московские (как на бэкенде). */
+function buildStartISOMoscow(dateStr: string, timeStr: string): string {
+  const d = toDate(`${dateStr}T${timeStr}:00`, { timeZone: MSK_TZ });
+  if (!isValid(d)) {
     throw new Error('Некорректная дата и время');
   }
-  return day.toISOString();
+  return d.toISOString();
+}
+
+/** Сообщение об ошибке или null, если слот можно запрашивать. */
+function validateBookableSlot(dateStr: string, timeStr: string): string | null {
+  let start: Date;
+  try {
+    start = toDate(`${dateStr}T${timeStr}:00`, { timeZone: MSK_TZ });
+  } catch {
+    return 'Некорректная дата или время';
+  }
+  if (!isValid(start)) return 'Некорректная дата или время';
+  const todayMsk = formatInTimeZone(new Date(), MSK_TZ, 'yyyy-MM-dd');
+  if (dateStr < todayMsk) {
+    return 'Нельзя бронировать на прошедшую дату или время';
+  }
+  if (start.getTime() < Date.now() - 90_000) {
+    return 'Нельзя бронировать на прошедшую дату или время';
+  }
+  return null;
 }
 
 type HallOpt = { id: string; name: string; restaurant: string; restaurant_id: string };
@@ -68,7 +83,7 @@ export default function HallPage() {
   );
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [date, setDate] = useState(() => formatInTimeZone(new Date(), MSK_TZ, 'yyyy-MM-dd'));
   const [time, setTime] = useState('19:00');
   const [availabilityById, setAvailabilityById] = useState<Record<string, boolean> | null>(null);
   const [selected, setSelected] = useState<TableShape | null>(null);
@@ -79,10 +94,17 @@ export default function HallPage() {
   const [bookingDefs, setBookingDefs] = useState<BookingDefaults | null>(null);
   const [guestsStr, setGuestsStr] = useState('2');
 
+  const restaurantIdForBookingDefaults = useMemo(
+    () => (hallId ? hallsList.find((h) => h.id === hallId)?.restaurant_id : undefined),
+    [hallId, hallsList],
+  );
+
   useEffect(() => {
     void (async () => {
       try {
-        const { data } = await api.get<BookingDefaults>('/booking-defaults');
+        const { data } = await api.get<BookingDefaults>('/booking-defaults', {
+          params: restaurantIdForBookingDefaults ? { restaurant_id: restaurantIdForBookingDefaults } : {},
+        });
         setBookingDefs({
           default_slot_duration_hours: data.default_slot_duration_hours ?? FALLBACK_DEFAULTS.default_slot_duration_hours,
           booking_open_hour: data.booking_open_hour ?? FALLBACK_DEFAULTS.booking_open_hour,
@@ -93,7 +115,7 @@ export default function HallPage() {
         setBookingDefs(FALLBACK_DEFAULTS);
       }
     })();
-  }, []);
+  }, [restaurantIdForBookingDefaults]);
 
   const defs = bookingDefs ?? FALLBACK_DEFAULTS;
   const slotHours = defs.default_slot_duration_hours;
@@ -101,6 +123,25 @@ export default function HallPage() {
     () => buildTimeSlots(defs.booking_open_hour, defs.booking_close_hour, defs.slot_minutes),
     [defs.booking_open_hour, defs.booking_close_hour, defs.slot_minutes]
   );
+
+  const moscowTodayStr = formatInTimeZone(new Date(), MSK_TZ, 'yyyy-MM-dd');
+
+  useEffect(() => {
+    if (date < moscowTodayStr) setDate(moscowTodayStr);
+  }, [date, moscowTodayStr]);
+
+  const visibleTimeSlots = useMemo(() => {
+    if (date !== moscowTodayStr) return timeSlots;
+    const nowMs = Date.now();
+    return timeSlots.filter((ts) => {
+      try {
+        const iso = buildStartISOMoscow(date, ts);
+        return new Date(iso).getTime() >= nowMs - 60_000;
+      } catch {
+        return false;
+      }
+    });
+  }, [timeSlots, date, moscowTodayStr]);
 
   const guests = useMemo(() => {
     const t = guestsStr.trim();
@@ -111,9 +152,9 @@ export default function HallPage() {
   }, [guestsStr]);
 
   useEffect(() => {
-    if (timeSlots.length === 0) return;
-    if (!timeSlots.includes(time)) setTime(timeSlots[0]);
-  }, [timeSlots, time]);
+    if (visibleTimeSlots.length === 0) return;
+    if (!visibleTimeSlots.includes(time)) setTime(visibleTimeSlots[0]);
+  }, [visibleTimeSlots, time]);
 
   useEffect(() => {
     void (async () => {
@@ -177,8 +218,14 @@ export default function HallPage() {
     if (!hallId) return;
     setLoadingAvail(true);
     setMsg('');
+    const bad = validateBookableSlot(date, time);
+    if (bad) {
+      setMsg(bad);
+      setLoadingAvail(false);
+      return;
+    }
     try {
-      const start = buildStartISO(date, time);
+      const start = buildStartISOMoscow(date, time);
       const end = addHours(new Date(start), slotHours).toISOString();
       const { data } = await api.get<{ tables: { id: string; available_for_slot: boolean }[] | null }>(
         `/halls/${hallId}/availability?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&guests=${guests}`
@@ -191,9 +238,13 @@ export default function HallPage() {
       setAvailabilityById(m);
       setStep(2);
     } catch (ex: unknown) {
-      const ax = ex as { response?: { data?: { error?: string } }; message?: string };
+      const ax = ex as { response?: { status?: number; data?: { error?: string } }; message?: string };
       const apiErr = ax.response?.data?.error;
       setMsg(apiErr || ax.message || 'Не удалось загрузить доступность столов');
+      if (ax.response?.status === 400) {
+        setStep(1);
+        setAvailabilityById(null);
+      }
     } finally {
       setLoadingAvail(false);
     }
@@ -229,13 +280,19 @@ export default function HallPage() {
   const book = async () => {
     if (!selected || !user) return;
     setMsg('');
-    const start = buildStartISO(date, time);
+    const bad = validateBookableSlot(date, time);
+    if (bad) {
+      setMsg(bad);
+      return;
+    }
+    const start = buildStartISOMoscow(date, time);
     const idem = crypto.randomUUID();
     try {
       const { data } = await api.post<{
         reservation_id: string;
-        payment_id: string;
-        checkout_url: string;
+        payment_id?: string;
+        checkout_url?: string;
+        no_payment_required?: boolean;
       }>('/reservations', {
         table_id: selected.id,
         start_time: start,
@@ -243,8 +300,15 @@ export default function HallPage() {
         comment,
         idempotency_key: idem,
       });
-      setPayId(data.payment_id);
-      setMsg('Бронь создана. Оплатите депозит.');
+      if (data.no_payment_required) {
+        setPayId(null);
+        setMsg('Бронь подтверждена. Депозит не требуется.');
+      } else if (data.payment_id) {
+        setPayId(data.payment_id);
+        setMsg('Бронь создана. Оплатите депозит.');
+      } else {
+        setMsg('Бронь создана.');
+      }
     } catch (ex: unknown) {
       const m = ex as { response?: { data?: { error?: string } } };
       setMsg(m.response?.data?.error || 'Ошибка');
@@ -386,17 +450,33 @@ export default function HallPage() {
           <div className="grid2">
             <div>
               <label>Дата</label>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <input
+                type="date"
+                value={date}
+                min={moscowTodayStr}
+                onChange={(e) => setDate(e.target.value)}
+              />
             </div>
             <div>
               <label>Время начала</label>
-              <select value={time} onChange={(e) => setTime(e.target.value)}>
-                {timeSlots.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
+              <select
+                value={visibleTimeSlots.includes(time) ? time : visibleTimeSlots[0] ?? ''}
+                onChange={(e) => setTime(e.target.value)}
+                disabled={visibleTimeSlots.length === 0}
+              >
+                {visibleTimeSlots.length === 0 ? (
+                  <option value="">Нет доступных слотов</option>
+                ) : (
+                  visibleTimeSlots.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))
+                )}
               </select>
+              {visibleTimeSlots.length === 0 && (
+                <p className="hint">На выбранную дату не осталось доступных слотов по времени.</p>
+              )}
             </div>
           </div>
           <label>Гости</label>
@@ -418,7 +498,12 @@ export default function HallPage() {
           <p className="hint">
             Длительность визита: {slotHours} ч. Показываются столы с достаточной вместимостью.
           </p>
-          <button type="button" className="btn" disabled={loadingAvail} onClick={() => void loadAvailability()}>
+          <button
+            type="button"
+            className="btn"
+            disabled={loadingAvail || visibleTimeSlots.length === 0}
+            onClick={() => void loadAvailability()}
+          >
             {loadingAvail ? 'Загрузка…' : 'Показать свободные столы'}
           </button>
           {msg && step === 1 && <p className="form-msg">{msg}</p>}
@@ -481,7 +566,7 @@ export default function HallPage() {
               <textarea rows={3} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Особые пожелания" />
               <div className="btn-row">
                 <button type="button" className="btn" onClick={() => void book()}>
-                  Забронировать и перейти к оплате
+                  Забронировать
                 </button>
                 <button type="button" className="secondary" onClick={() => void resetWizard()}>
                   Начать сначала

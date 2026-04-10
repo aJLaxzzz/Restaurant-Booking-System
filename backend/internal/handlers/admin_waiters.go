@@ -23,9 +23,14 @@ func (a *Handlers) handleAdminWaitersList(w http.ResponseWriter, r *http.Request
 	now := time.Now().In(loc)
 	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	dayEnd := dayStart.Add(24 * time.Hour)
+	todayYMD := dayStart.Format("2006-01-02")
 
 	rows, err := a.Pool.Query(r.Context(), `
 		SELECT u.id, u.email, u.full_name, u.phone,
+			EXISTS (
+				SELECT 1 FROM waiter_work_dates wwd
+				WHERE wwd.user_id = u.id AND wwd.restaurant_id = $1 AND wwd.work_date = $4::date
+			),
 			COALESCE((
 				SELECT json_agg(json_build_object(
 					'id', r.id,
@@ -43,7 +48,7 @@ func (a *Handlers) handleAdminWaitersList(w http.ResponseWriter, r *http.Request
 			), '[]'::json)
 		FROM users u
 		WHERE u.restaurant_id = $1 AND u.role = 'waiter'
-		ORDER BY u.full_name`, rid, dayStart, dayEnd)
+		ORDER BY u.full_name`, rid, dayStart, dayEnd, todayYMD)
 	if err != nil {
 		a.err(w, http.StatusInternalServerError, "БД")
 		return
@@ -54,8 +59,9 @@ func (a *Handlers) handleAdminWaitersList(w http.ResponseWriter, r *http.Request
 	for rows.Next() {
 		var id uuid.UUID
 		var email, fullName, phone string
+		var scheduled bool
 		var raw []byte
-		if err := rows.Scan(&id, &email, &fullName, &phone, &raw); err != nil {
+		if err := rows.Scan(&id, &email, &fullName, &phone, &scheduled, &raw); err != nil {
 			a.err(w, http.StatusInternalServerError, "БД")
 			return
 		}
@@ -65,6 +71,7 @@ func (a *Handlers) handleAdminWaitersList(w http.ResponseWriter, r *http.Request
 		}
 		out = append(out, map[string]any{
 			"id": id.String(), "email": email, "full_name": fullName, "phone": phone,
+			"scheduled_today":    scheduled,
 			"today_reservations": today,
 		})
 	}

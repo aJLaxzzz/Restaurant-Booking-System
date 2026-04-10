@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { api } from '../../api';
 import { useAuth } from '../../auth';
+import { normalizeRuPhoneInput, isValidRuPhoneE164 } from '../../utils/phone';
 
 type HallOpt = { id: string; name: string; restaurant: string; restaurant_id: string };
 
@@ -50,9 +51,13 @@ export function AdminManualBooking({ onCreated }: Props) {
     setLookupMsg('');
     setManualUserId('');
     setManualUserLabel('');
-    const q = phoneInput.trim();
+    const q = normalizeRuPhoneInput(phoneInput);
     if (!q) {
       setLookupMsg('Введите телефон');
+      return;
+    }
+    if (!isValidRuPhoneE164(q)) {
+      setLookupMsg('Формат: +7 и 10 цифр');
       return;
     }
     try {
@@ -100,9 +105,10 @@ export function AdminManualBooking({ onCreated }: Props) {
           <label>Телефон клиента</label>
           <div className="btn-row" style={{ flexWrap: 'wrap', gap: 8 }}>
             <input
+              inputMode="tel"
               placeholder="+79161234567"
               value={phoneInput}
-              onChange={(e) => setPhoneInput(e.target.value)}
+              onChange={(e) => setPhoneInput(normalizeRuPhoneInput(e.target.value))}
               style={{ flex: 1, minWidth: 180 }}
             />
             <button type="button" className="secondary" onClick={() => void lookupClient()}>

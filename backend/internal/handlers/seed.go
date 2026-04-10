@@ -26,6 +26,29 @@ func (a *Handlers) Seed(ctx context.Context) {
 	}
 	a.ensureRestaurantTodayTomorrowDemoBookings(ctx, "trattoria-tverskaya", demoTrattoriaNearMarker, "waiter@demo.ru", "waiter2@demo.ru")
 	a.ensureRestaurantTodayTomorrowDemoBookings(ctx, "bella-vista", demoBellaNearMarker, "waiter5@demo.ru", "")
+	a.ensureSuperadminUser(ctx)
+	a.ensureDefaultSettings(ctx)
+}
+
+func (a *Handlers) ensureSuperadminUser(ctx context.Context) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("Password1"), a.Cfg.BcryptCost)
+	if err != nil {
+		return
+	}
+	_, _ = a.Pool.Exec(ctx, `
+		INSERT INTO users (email, password_hash, full_name, phone, role, email_verified)
+		VALUES ('superadmin@demo.ru',$1,'Системный администратор','+79000000000','superadmin',true)
+		ON CONFLICT (email) DO UPDATE SET
+			role = 'superadmin',
+			password_hash = EXCLUDED.password_hash,
+			full_name = EXCLUDED.full_name`,
+		string(hash))
+}
+
+func (a *Handlers) ensureDefaultSettings(ctx context.Context) {
+	_, _ = a.Pool.Exec(ctx, `
+		INSERT INTO settings (key, value) VALUES ('no_show_grace_minutes', '{"minutes":20}'::jsonb)
+		ON CONFLICT (key) DO NOTHING`)
 }
 
 func (a *Handlers) seedBase(ctx context.Context) {

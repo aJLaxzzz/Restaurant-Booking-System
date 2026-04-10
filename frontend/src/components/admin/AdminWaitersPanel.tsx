@@ -3,6 +3,7 @@ import { parseISO } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { formatInTimeZone } from 'date-fns-tz';
 import { api } from '../../api';
+import { reservationStatusLabelRu } from '../../utils/reservationStatus';
 import { AdminWaiterWorkCalendar } from './AdminWaiterWorkCalendar';
 
 const moscowTZ = 'Europe/Moscow';
@@ -19,6 +20,7 @@ type WaiterRow = {
   email: string;
   full_name: string;
   phone: string;
+  scheduled_today?: boolean;
   today_reservations: ResBrief[] | null;
 };
 
@@ -84,10 +86,17 @@ export function AdminWaitersPanel() {
           <tbody>
             {rows.map((w) => {
               const list = w.today_reservations ?? [];
-              const brief =
-                list.length === 0
-                  ? '—'
-                  : list.map((r) => `№${r.table_number} ${formatStart(r.start_time)} (${r.status})`).join('; ');
+              const scheduled = w.scheduled_today !== false;
+              const brief = !scheduled
+                ? 'выходной'
+                : list.length === 0
+                  ? 'нет назначенных столов'
+                  : list
+                      .map(
+                        (r) =>
+                          `№${r.table_number} ${formatStart(r.start_time)} (${reservationStatusLabelRu(r.status)})`,
+                      )
+                      .join('; ');
               return (
                 <tr key={w.id}>
                   <td>{w.full_name}</td>

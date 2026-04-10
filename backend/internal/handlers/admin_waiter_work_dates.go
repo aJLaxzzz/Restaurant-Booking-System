@@ -32,6 +32,46 @@ func parseDateParam(s string) (time.Time, bool) {
 	return t, true
 }
 
+// handleAdminWaitersWorkDatesBulkGet — по всем официантам заведения: даты в [from, to].
+func (a *Handlers) handleAdminWaitersWorkDatesBulkGet(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
+	rid, ok := a.mustRestaurant(w, r, u)
+	if !ok || u.Role != "admin" {
+		return
+	}
+	fromS := r.URL.Query().Get("from")
+	toS := r.URL.Query().Get("to")
+	from, ok1 := parseDateParam(fromS)
+	to, ok2 := parseDateParam(toS)
+	if !ok1 || !ok2 || to.Before(from) {
+		a.err(w, http.StatusBadRequest, "укажите from и to в формате YYYY-MM-DD")
+		return
+	}
+	rows, err := a.Pool.Query(r.Context(), `
+		SELECT user_id, work_date FROM waiter_work_dates
+		WHERE restaurant_id=$1 AND work_date >= $2::date AND work_date <= $3::date
+		ORDER BY user_id, work_date`,
+		rid, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err != nil {
+		a.err(w, http.StatusInternalServerError, "БД")
+		return
+	}
+	defer rows.Close()
+	byWaiter := map[string][]string{}
+	for rows.Next() {
+		var wid uuid.UUID
+		var d time.Time
+		if err := rows.Scan(&wid, &d); err != nil {
+			a.err(w, http.StatusInternalServerError, "БД")
+			return
+		}
+		key := wid.String()
+		ds := d.Format("2006-01-02")
+		byWaiter[key] = append(byWaiter[key], ds)
+	}
+	a.json(w, http.StatusOK, map[string]any{"by_waiter": byWaiter})
+}
+
 // handleAdminWaiterWorkDatesGet — даты работы официанта в диапазоне [from, to] (календарные дни UTC).
 func (a *Handlers) handleAdminWaiterWorkDatesGet(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
@@ -147,6 +187,12 @@ func (a *Handlers) handleAdminWaiterWorkDatesPut(w http.ResponseWriter, r *http.
 	if err := tx.Commit(r.Context()); err != nil {
 		a.err(w, http.StatusInternalServerError, "БД")
 		return
+	}
+	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
+		if err := a.rebalanceWaitersForRestaurantDay(r.Context(), rid, d.Format("2006-01-02")); err != nil {
+			a.err(w, http.StatusInternalServerError, "пересчёт назначений")
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

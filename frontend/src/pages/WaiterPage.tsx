@@ -30,6 +30,8 @@ type OrderLine = {
   quantity: number;
   guest_label: string;
   line_total_kopecks: number;
+  added_by?: string;
+  served?: boolean;
 };
 
 function WaiterOrderPanel({
@@ -117,6 +119,17 @@ function WaiterOrderPanel({
     }
   };
 
+  const markServed = async (lid: string) => {
+    if (!canEditMenu) return;
+    setMsg('');
+    try {
+      await api.post(`/reservations/${reservationId}/order/lines/${lid}/mark-served`);
+      await load();
+    } catch {
+      setMsg('Не удалось отметить «принесено»');
+    }
+  };
+
   if (resStatus !== 'seated' && resStatus !== 'in_service') {
     return null;
   }
@@ -124,14 +137,32 @@ function WaiterOrderPanel({
   return (
     <div className="waiter-order-block">
       <h4>Заказ по меню</h4>
+      <p className="muted compact" style={{ marginTop: 0 }}>
+        Бейдж «Гость» / «Официант» — кто добавил строку. До оплаты счёта все позиции должны быть принесены.
+      </p>
       <ul className="waiter-order-lines">
         {lines.map((l) => (
-          <li key={l.id}>
-            {l.item_name} ×{l.quantity} ({l.guest_label}) — {(l.line_total_kopecks / 100).toFixed(0)} ₽
-            {canEditMenu && (
-              <button type="button" className="secondary btn-sm" onClick={() => void removeLine(l.id)}>
-                ✕
-              </button>
+          <li key={l.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.35rem' }}>
+            <span className="status-pill" style={{ fontSize: '0.72rem' }}>
+              {l.added_by === 'client' ? 'Гость' : 'Официант'}
+            </span>
+            {l.served ? (
+              <span className="status-pill" style={{ fontSize: '0.72rem', opacity: 0.9 }}>
+                Принесено
+              </span>
+            ) : null}
+            <span>
+              {l.item_name} ×{l.quantity} ({l.guest_label}) — {(l.line_total_kopecks / 100).toFixed(0)} ₽
+            </span>
+            {canEditMenu && !l.served && (
+              <>
+                <button type="button" className="btn btn-sm" onClick={() => void markServed(l.id)}>
+                  Принесено
+                </button>
+                <button type="button" className="secondary btn-sm" onClick={() => void removeLine(l.id)}>
+                  ✕
+                </button>
+              </>
             )}
           </li>
         ))}
@@ -225,13 +256,20 @@ export default function WaiterPage() {
   const { user } = useAuth();
   const canEditMenu = user?.role === 'waiter';
   const [rows, setRows] = useState<Row[]>([]);
+  const [scheduledToday, setScheduledToday] = useState(true);
   const [noteFor, setNoteFor] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
   const [msg, setMsg] = useState('');
 
   const load = async () => {
-    const { data } = await api.get<Row[]>('/waiter/my-tables');
-    setRows(Array.isArray(data) ? data : []);
+    const { data } = await api.get<{ scheduled_today?: boolean; tables?: Row[] } | Row[]>('/waiter/my-tables');
+    if (data && typeof data === 'object' && !Array.isArray(data) && 'tables' in data) {
+      setScheduledToday(data.scheduled_today !== false);
+      setRows(Array.isArray(data.tables) ? data.tables : []);
+    } else {
+      setScheduledToday(true);
+      setRows(Array.isArray(data) ? data : []);
+    }
   };
 
   useEffect(() => {
@@ -316,7 +354,13 @@ export default function WaiterPage() {
             )}
           </div>
         ))}
-        {rows.length === 0 && <p className="muted">Нет назначенных столов на сейчас</p>}
+        {rows.length === 0 && (
+          <p className="muted">
+            {user?.role === 'waiter' && !scheduledToday
+              ? 'Выходной — вас нет в графике на сегодня.'
+              : 'Нет назначенных столов на сейчас'}
+          </p>
+        )}
         {msg && <p className="form-msg success">{msg}</p>}
       </div>
     </div>

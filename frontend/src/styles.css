@@ -1857,8 +1857,24 @@ a.restaurant-card--link:hover {
   color: #e2e8f0;
 }
 
+label.admin-menu-pos-card-avail {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+  cursor: pointer;
+}
+label.admin-menu-pos-card-avail span {
+  line-height: 1.2;
+}
+label.admin-menu-pos-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
 label.admin-menu-pos-card-avail .admin-checkbox-input,
-.admin-menu-pos-check .admin-checkbox-input {
+.admin-menu-pos-check .admin-checkbox-input,
+.admin-work-cal-waiter-chk.admin-menu-pos-check .admin-checkbox-input {
   appearance: none;
   -webkit-appearance: none;
   flex-shrink: 0;
@@ -1873,30 +1889,36 @@ label.admin-menu-pos-card-avail .admin-checkbox-input,
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 label.admin-menu-pos-card-avail .admin-checkbox-input:hover,
-.admin-menu-pos-check .admin-checkbox-input:hover {
+.admin-menu-pos-check .admin-checkbox-input:hover,
+.admin-work-cal-waiter-chk.admin-menu-pos-check .admin-checkbox-input:hover {
   border-color: rgba(129, 140, 248, 0.75);
 }
 label.admin-menu-pos-card-avail .admin-checkbox-input:focus-visible,
-.admin-menu-pos-check .admin-checkbox-input:focus-visible {
+.admin-menu-pos-check .admin-checkbox-input:focus-visible,
+.admin-work-cal-waiter-chk.admin-menu-pos-check .admin-checkbox-input:focus-visible {
   outline: 2px solid rgba(129, 140, 248, 0.65);
   outline-offset: 2px;
 }
 label.admin-menu-pos-card-avail .admin-checkbox-input:checked,
-.admin-menu-pos-check .admin-checkbox-input:checked {
+.admin-menu-pos-check .admin-checkbox-input:checked,
+.admin-work-cal-waiter-chk.admin-menu-pos-check .admin-checkbox-input:checked {
   border-color: #818cf8;
   background: rgba(99, 102, 241, 0.35);
 }
 label.admin-menu-pos-card-avail .admin-checkbox-input:checked::after,
-.admin-menu-pos-check .admin-checkbox-input:checked::after {
+.admin-menu-pos-check .admin-checkbox-input:checked::after,
+.admin-work-cal-waiter-chk.admin-menu-pos-check .admin-checkbox-input:checked::after {
   content: '';
   position: absolute;
-  left: 3px;
-  top: 0;
+  left: 50%;
+  top: 45%;
   width: 5px;
   height: 9px;
+  margin-left: -1px;
   border: solid #e0e7ff;
   border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
+  transform: translate(-50%, -50%) rotate(45deg);
+  transform-origin: center;
 }
 
 .admin-menu-pos-card {
@@ -2100,4 +2122,111 @@ label.admin-menu-pos-card-avail .admin-checkbox-input:checked::after,
 .admin-work-cal-cell:disabled:not(.admin-work-cal-cell--muted) {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.admin-work-cal-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.admin-work-cal-side {
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.admin-work-cal-side-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.admin-work-cal-waiter-chk {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.admin-work-cal-waiter-chk.admin-menu-pos-check {
+  align-items: center;
+  gap: 0.5rem;
+}
+.admin-work-cal-waiter-chk.admin-menu-pos-check .admin-work-cal-waiter-dot {
+  margin-top: 0;
+}
+
+.settings-json-edit {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+}
+.compact-select {
+  max-width: 9rem;
+}
+
+.admin-work-cal-waiter-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.admin-work-cal-calendar {
+  flex: 1;
+  min-width: 280px;
+}
+
+.admin-work-cal-grid {
+  max-width: 520px;
+}
+
+.admin-work-cal-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 4px 2px 6px;
+  aspect-ratio: auto;
+  min-height: 46px;
+}
+
+.admin-work-cal-cell-day {
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.admin-work-cal-cell-strips {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: auto;
+  padding-top: 2px;
+}
+
+.admin-work-cal-strip {
+  display: inline-block;
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.admin-work-cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  margin-top: 1rem;
+  font-size: 0.82rem;
+}
+
+.admin-work-cal-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }

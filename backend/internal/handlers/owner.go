@@ -3,8 +3,9 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
+
+	"restaurant-booking/internal/phoneutil"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -38,30 +39,13 @@ func ownerMoscowRangeFromRequest(r *http.Request) (from time.Time, toExclusive t
 	return from, toExclusive
 }
 
-func normalizePhoneRU(s string) string {
-	s = strings.TrimSpace(strings.ReplaceAll(s, " ", ""))
-	if s == "" {
-		return ""
-	}
-	if strings.HasPrefix(s, "+7") {
-		return s
-	}
-	if len(s) == 11 && s[0] == '8' {
-		return "+7" + s[1:]
-	}
-	if len(s) == 10 && s[0] == '9' {
-		return "+7" + s
-	}
-	return s
-}
-
 func (a *Handlers) handleAdminClientLookup(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
-	if u.Role != "admin" && u.Role != "owner" {
+	if u.Role != "admin" && u.Role != "owner" && u.Role != "superadmin" {
 		a.err(w, http.StatusForbidden, "нет доступа")
 		return
 	}
-	raw := normalizePhoneRU(r.URL.Query().Get("phone"))
+	raw := phoneutil.NormalizeRU(r.URL.Query().Get("phone"))
 	if raw == "" || !phoneRe.MatchString(raw) {
 		a.err(w, http.StatusBadRequest, "телефон в формате +7XXXXXXXXXX")
 		return
@@ -586,30 +570,77 @@ func (a *Handlers) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Handlers) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.Pool.Query(r.Context(), `SELECT key, value FROM settings`)
-	if err != nil {
-		a.err(w, http.StatusInternalServerError, "БД")
+	u := userFrom(r)
+	if u.Role == "superadmin" {
+		rows, err := a.Pool.Query(r.Context(), `SELECT key, value FROM settings`)
+		if err != nil {
+			a.err(w, http.StatusInternalServerError, "БД")
+			return
+		}
+		defer rows.Close()
+		m := map[string]json.RawMessage{}
+		for rows.Next() {
+			var k string
+			var v []byte
+			_ = rows.Scan(&k, &v)
+			m[k] = v
+		}
+		a.json(w, http.StatusOK, m)
 		return
 	}
-	defer rows.Close()
-	m := map[string]json.RawMessage{}
-	for rows.Next() {
-		var k string
-		var v []byte
-		_ = rows.Scan(&k, &v)
-		m[k] = v
+	if u.Role != "owner" {
+		a.err(w, http.StatusForbidden, "нет доступа")
+		return
 	}
+	rid, err := a.restaurantUUIDForUser(r.Context(), u.ID, u.Role)
+	if err != nil || rid == uuid.Nil {
+		a.err(w, http.StatusForbidden, "нет ресторана")
+		return
+	}
+	ctx := r.Context()
+	m := map[string]json.RawMessage{}
+	for _, k := range ownerRestaurantIntSettingKeys() {
+		v := a.getSettingIntForRestaurant(ctx, rid, k, defaultIntForOwnerSettingKey(k))
+		b, _ := json.Marshal(v)
+		m[k] = b
+	}
+	m[ownerNoShowGraceKey] = a.ownerNoShowGraceJSON(ctx, rid)
 	a.json(w, http.StatusOK, m)
 }
 
 func (a *Handlers) handleSettingsPut(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
 	var body map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		a.err(w, http.StatusBadRequest, "json")
 		return
 	}
+	if u.Role == "superadmin" {
+		for k, v := range body {
+			_, _ = a.Pool.Exec(r.Context(), `INSERT INTO settings(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, k, string(v))
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if u.Role != "owner" {
+		a.err(w, http.StatusForbidden, "нет доступа")
+		return
+	}
+	rid, err := a.restaurantUUIDForUser(r.Context(), u.ID, u.Role)
+	if err != nil || rid == uuid.Nil {
+		a.err(w, http.StatusForbidden, "нет ресторана")
+		return
+	}
+	allowed := map[string]struct{}{}
+	for _, k := range ownerRestaurantIntSettingKeys() {
+		allowed[k] = struct{}{}
+	}
+	allowed[ownerNoShowGraceKey] = struct{}{}
 	for k, v := range body {
-		_, _ = a.Pool.Exec(r.Context(), `INSERT INTO settings(key,value) VALUES($1,$2::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, k, string(v))
+		if _, ok := allowed[k]; !ok {
+			continue
+		}
+		_, _ = a.Pool.Exec(r.Context(), `INSERT INTO restaurant_settings(restaurant_id,key,value) VALUES($1,$2,$3::jsonb) ON CONFLICT(restaurant_id,key) DO UPDATE SET value=EXCLUDED.value`, rid, k, string(v))
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

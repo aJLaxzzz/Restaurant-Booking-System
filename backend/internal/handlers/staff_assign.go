@@ -106,12 +106,12 @@ func (a *Handlers) staffAssign(w http.ResponseWriter, r *http.Request, restauran
 		return
 	}
 
-	// Назначение admin / waiter
+	// Назначение admin / waiter (гость без заведения; заявка владельца в статусе pending не назначается персоналом)
 	ct, err := a.Pool.Exec(r.Context(), `
 		UPDATE users SET role=$2, restaurant_id=$3, updated_at=NOW()
 		WHERE id=$1
 		AND (
-			(role = 'client' AND restaurant_id IS NULL)
+			(role = 'client' AND restaurant_id IS NULL AND COALESCE(owner_application_status,'') <> 'pending')
 			OR (role IN ('waiter','admin') AND restaurant_id = $3)
 		)`,
 		targetID, body.Role, restaurantID)

@@ -81,6 +81,7 @@ func (a *Handlers) RouterReservation() http.Handler {
 	r.Use(UseStandardChi(a.Cfg))
 	r.Get("/health", a.handleHealth)
 	r.Route("/api", func(r chi.Router) {
+		r.Get("/files/*", a.handleUploadedFile)
 		a.MountReservation(r)
 	})
 	go a.runPendingPaymentSweeper()

@@ -190,6 +190,22 @@ func (a *Handlers) handleWaiterTables(w http.ResponseWriter, r *http.Request) {
 		a.err(w, http.StatusForbidden, "нет привязки к заведению")
 		return
 	}
+	loc := bookingLocationMoscow()
+	now := time.Now().In(loc)
+	todayYMD := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Format("2006-01-02")
+	scheduledToday := true
+	if u.Role == "waiter" {
+		var n int
+		err := a.Pool.QueryRow(r.Context(), `
+			SELECT COUNT(*)::int FROM waiter_work_dates
+			WHERE user_id=$1 AND restaurant_id=$2 AND work_date=$3::date`,
+			u.ID, ridScope, todayYMD).Scan(&n)
+		if err != nil {
+			a.err(w, http.StatusInternalServerError, "БД")
+			return
+		}
+		scheduledToday = n > 0
+	}
 	rows, err := a.Pool.Query(r.Context(), `
 		SELECT r.id, t.table_number, r.start_time, r.end_time, r.guest_count, r.status,
 		       us.full_name, us.phone
@@ -227,5 +243,8 @@ func (a *Handlers) handleWaiterTables(w http.ResponseWriter, r *http.Request) {
 			"status": status, "client_name": fn, "phone": phone,
 		})
 	}
-	a.json(w, http.StatusOK, out)
+	a.json(w, http.StatusOK, map[string]any{
+		"scheduled_today": scheduledToday,
+		"tables":          out,
+	})
 }

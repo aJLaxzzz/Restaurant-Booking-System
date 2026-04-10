@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	appauth "restaurant-booking/internal/auth"
+	"restaurant-booking/internal/phoneutil"
 )
 
 var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
@@ -34,8 +36,9 @@ func (a *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
 		a.err(w, http.StatusBadRequest, "некорректный email")
 		return
 	}
-	if !phoneRe.MatchString(strings.ReplaceAll(body.Phone, " ", "")) {
-		a.err(w, http.StatusBadRequest, "телефон в формате +7XXXXXXXXXX")
+	phoneNorm := phoneutil.NormalizeRU(body.Phone)
+	if !phoneRe.MatchString(phoneNorm) {
+		a.err(w, http.StatusBadRequest, "телефон в формате +7XXXXXXXXXX (10 цифр после +7)")
 		return
 	}
 	if len(body.FullName) < 2 {
@@ -51,16 +54,17 @@ func (a *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
 		a.err(w, http.StatusInternalServerError, "ошибка хеширования")
 		return
 	}
-	phone := strings.ReplaceAll(body.Phone, " ", "")
-	role := "client"
+	var ownerApp any
 	if body.RegisterAsOwner {
-		role = "owner"
+		ownerApp = "pending"
+	} else {
+		ownerApp = nil
 	}
 	var id uuid.UUID
 	err = a.Pool.QueryRow(r.Context(), `
-		INSERT INTO users (email, password_hash, full_name, phone, role, email_verified)
-		VALUES ($1,$2,$3,$4,$5, true)
-		RETURNING id`, body.Email, string(hash), body.FullName, phone, role).Scan(&id)
+		INSERT INTO users (email, password_hash, full_name, phone, role, email_verified, owner_application_status)
+		VALUES ($1,$2,$3,$4,'client', true, $5)
+		RETURNING id`, body.Email, string(hash), body.FullName, phoneNorm, ownerApp).Scan(&id)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique") {
 			a.err(w, http.StatusConflict, "email уже зарегистрирован")
@@ -69,7 +73,14 @@ func (a *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
 		a.err(w, http.StatusInternalServerError, "не удалось создать пользователя")
 		return
 	}
-	a.json(w, http.StatusCreated, map[string]any{"id": id.String(), "message": "регистрация успешна (демо: письмо подтверждения не отправляется)"})
+	_ = a.publishEvent(r.Context(), "user.registered", map[string]any{
+		"user_id": id.String(), "email": body.Email, "register_as_owner": body.RegisterAsOwner,
+	})
+	msg := "регистрация успешна (демо: письмо подтверждения не отправляется)"
+	if body.RegisterAsOwner {
+		msg = "заявка на роль владельца отправлена на модерацию. После одобрения вы сможете создать ресторан."
+	}
+	a.json(w, http.StatusCreated, map[string]any{"id": id.String(), "message": msg})
 }
 
 func validatePassword(p string) error {
@@ -185,9 +196,10 @@ func (a *Handlers) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
 	var email, fullName, phone, role, status string
 	var createdAt time.Time
+	var ownerApp sql.NullString
 	err := a.Pool.QueryRow(r.Context(), `
-		SELECT email, full_name, phone, role, status, created_at FROM users WHERE id=$1`, u.ID).
-		Scan(&email, &fullName, &phone, &role, &status, &createdAt)
+		SELECT email, full_name, phone, role, status, created_at, owner_application_status FROM users WHERE id=$1`, u.ID).
+		Scan(&email, &fullName, &phone, &role, &status, &createdAt, &ownerApp)
 	if err != nil {
 		a.err(w, http.StatusNotFound, "не найден")
 		return
@@ -195,6 +207,9 @@ func (a *Handlers) handleMe(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
 		"id": u.ID.String(), "email": email, "full_name": fullName, "phone": phone,
 		"role": role, "status": status, "created_at": createdAt,
+	}
+	if ownerApp.Valid && ownerApp.String != "" {
+		out["owner_application_status"] = ownerApp.String
 	}
 	if rid, err := a.restaurantUUIDForUser(r.Context(), u.ID, role); err == nil && rid != uuid.Nil {
 		out["restaurant_id"] = rid.String()
@@ -212,9 +227,13 @@ func (a *Handlers) handleMeUpdate(w http.ResponseWriter, r *http.Request) {
 		a.err(w, http.StatusBadRequest, "неверный JSON")
 		return
 	}
-	if body.Phone != nil && !phoneRe.MatchString(strings.ReplaceAll(*body.Phone, " ", "")) {
-		a.err(w, http.StatusBadRequest, "телефон +7XXXXXXXXXX")
-		return
+	if body.Phone != nil {
+		n := phoneutil.NormalizeRU(*body.Phone)
+		if !phoneRe.MatchString(n) {
+			a.err(w, http.StatusBadRequest, "телефон +7XXXXXXXXXX")
+			return
+		}
+		body.Phone = &n
 	}
 	_, err := a.Pool.Exec(r.Context(), `
 		UPDATE users SET

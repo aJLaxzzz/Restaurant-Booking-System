@@ -4,6 +4,7 @@ import axios from 'axios';
 import { format, subDays } from 'date-fns';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { normalizeRuPhoneInput, isValidRuPhoneE164 } from '../utils/phone';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -30,6 +31,7 @@ const SETTING_FORM_KEYS = [
   'refund_more_than_24h_percent',
   'refund_12_to_24h_percent',
   'refund_less_than_12h_percent',
+  'no_show_grace_minutes',
 ] as const;
 
 const OWNER_SETTING_META: Record<(typeof SETTING_FORM_KEYS)[number], { title: string; hint: string }> = {
@@ -77,10 +79,18 @@ const OWNER_SETTING_META: Record<(typeof SETTING_FORM_KEYS)[number], { title: st
     title: 'Возврат при отмене менее чем за 12 ч (%)',
     hint: 'Используется как запасной вариант в логике возврата, если нет отдельного ключа «последние 2 ч».',
   },
+  no_show_grace_minutes: {
+    title: 'Минут после начала брони до авто-неявки',
+    hint: 'Подтверждённая бронь без посадки гостя переводится в «Не пришёл», если прошло столько минут после start_time.',
+  },
 };
 
 function settingToInputString(v: unknown): string {
   if (v === null || v === undefined) return '';
+  if (typeof v === 'object' && v !== null && 'minutes' in v) {
+    const m = (v as { minutes?: unknown }).minutes;
+    if (typeof m === 'number' && Number.isFinite(m)) return String(Math.round(m));
+  }
   if (typeof v === 'number' && Number.isFinite(v)) return String(v);
   if (typeof v === 'string') {
     try {
@@ -272,8 +282,13 @@ export default function OwnerPage() {
     e.preventDefault();
     setRestContactMsg('');
     try {
+      const phoneNorm = normalizeRuPhoneInput(restPhone);
+      if (!isValidRuPhoneE164(phoneNorm)) {
+        setRestContactMsg('Телефон: +7 и 10 цифр');
+        return;
+      }
       await api.put('/owner/restaurant', {
-        phone: restPhone.trim(),
+        phone: phoneNorm,
         opens_at: restOpens.trim(),
         closes_at: restCloses.trim(),
         address: restAddress.trim(),
@@ -291,7 +306,7 @@ export default function OwnerPage() {
   const saveSettingsForm = async (e: FormEvent) => {
     e.preventDefault();
     setSettingsSaveMsg('');
-    const body: Record<string, number> = {};
+    const body: Record<string, unknown> = {};
     for (const k of SETTING_FORM_KEYS) {
       const raw = (settingsForm[k] ?? '').trim();
       if (raw === '') continue;
@@ -300,7 +315,11 @@ export default function OwnerPage() {
         setSettingsSaveMsg(`Некорректное число: ${k}`);
         return;
       }
-      body[k] = n;
+      if (k === 'no_show_grace_minutes') {
+        body[k] = { minutes: Math.max(1, Math.round(n)) };
+      } else {
+        body[k] = n;
+      }
     }
     if (Object.keys(body).length === 0) {
       setSettingsSaveMsg('Нет значений для сохранения');
@@ -517,7 +536,12 @@ export default function OwnerPage() {
                 placeholder="Кухня, атмосфера, особенности"
               />
               <label>Телефон</label>
-              <input value={restPhone} onChange={(e) => setRestPhone(e.target.value)} placeholder="+7…" />
+              <input
+                inputMode="tel"
+                value={restPhone}
+                onChange={(e) => setRestPhone(normalizeRuPhoneInput(e.target.value))}
+                placeholder="+7 9XX XXX XX XX"
+              />
               <label>Email для гостей (публичная страница)</label>
               <input
                 type="email"

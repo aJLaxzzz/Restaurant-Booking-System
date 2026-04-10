@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -30,6 +31,24 @@ func (a *Handlers) restaurantUUIDForUser(ctx context.Context, uid uuid.UUID, rol
 }
 
 func (a *Handlers) mustRestaurant(w http.ResponseWriter, r *http.Request, u userCtx) (uuid.UUID, bool) {
+	if u.Role == "superadmin" {
+		q := strings.TrimSpace(r.URL.Query().Get("restaurant_id"))
+		if q == "" {
+			a.err(w, http.StatusBadRequest, "нужен restaurant_id")
+			return uuid.Nil, false
+		}
+		rid, err := uuid.Parse(q)
+		if err != nil {
+			a.err(w, http.StatusBadRequest, "restaurant_id")
+			return uuid.Nil, false
+		}
+		var one int
+		if err := a.Pool.QueryRow(r.Context(), `SELECT 1 FROM restaurants WHERE id=$1`, rid).Scan(&one); err != nil {
+			a.err(w, http.StatusNotFound, "ресторан")
+			return uuid.Nil, false
+		}
+		return rid, true
+	}
 	rid, err := a.restaurantUUIDForUser(r.Context(), u.ID, u.Role)
 	if err != nil || rid == uuid.Nil {
 		a.err(w, http.StatusForbidden, "нет привязки к заведению")
@@ -57,6 +76,9 @@ func (a *Handlers) restaurantIDByReservation(ctx context.Context, resID uuid.UUI
 }
 
 func (a *Handlers) userMayAccessRestaurant(w http.ResponseWriter, r *http.Request, u userCtx, restaurantID uuid.UUID) bool {
+	if u.Role == "superadmin" {
+		return true
+	}
 	if u.Role == "client" {
 		return true
 	}
