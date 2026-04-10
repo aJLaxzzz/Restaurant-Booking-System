@@ -18,6 +18,84 @@ import {
 import { Line } from 'react-chartjs-2';
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
+const SETTING_FORM_KEYS = [
+  'avg_check_kopecks',
+  'deposit_percent',
+  'slot_minutes',
+  'booking_open_hour',
+  'booking_close_hour',
+  'default_slot_duration_hours',
+  'refund_more_than_2h_percent',
+  'refund_within_2h_percent',
+  'refund_more_than_24h_percent',
+  'refund_12_to_24h_percent',
+  'refund_less_than_12h_percent',
+] as const;
+
+const OWNER_SETTING_META: Record<(typeof SETTING_FORM_KEYS)[number], { title: string; hint: string }> = {
+  avg_check_kopecks: {
+    title: 'Средний чек (копейки)',
+    hint: 'Оценка среднего чека; участвует в расчёте депозита при брони.',
+  },
+  deposit_percent: {
+    title: 'Депозит (%)',
+    hint: 'Доля от оценки чека, удерживаемая при бронировании.',
+  },
+  slot_minutes: {
+    title: 'Шаг времени (минуты)',
+    hint: 'Интервал между слотами на странице брони (например 30 — каждые полчаса).',
+  },
+  booking_open_hour: {
+    title: 'Час открытия брони',
+    hint: 'С какого часа гость может выбрать время визита (0–23).',
+  },
+  booking_close_hour: {
+    title: 'Час закрытия брони',
+    hint: 'До какого часа можно начать визит; 0 — до полуночи.',
+  },
+  default_slot_duration_hours: {
+    title: 'Длительность визита (часы)',
+    hint: 'Стандартная длина брони для проверки занятости столов.',
+  },
+  refund_more_than_2h_percent: {
+    title: 'Возврат при отмене > 2 ч до визита (%)',
+    hint: 'Какую долю депозита вернуть, если отмена раньше чем за 2 часа до начала.',
+  },
+  refund_within_2h_percent: {
+    title: 'Возврат при отмене в последние 2 ч (%)',
+    hint: 'Доля возврата при поздней отмене.',
+  },
+  refund_more_than_24h_percent: {
+    title: 'Возврат при отмене раньше чем за 24 ч (%)',
+    hint: 'Дополнительный порог в таблице настроек; отмена депозита в API в первую очередь использует правила «2 ч» выше.',
+  },
+  refund_12_to_24h_percent: {
+    title: 'Возврат при отмене за 12–24 ч (%)',
+    hint: 'Хранится в БД; при отмене через админку применяются ключи с порогом 2 ч, если они заданы.',
+  },
+  refund_less_than_12h_percent: {
+    title: 'Возврат при отмене менее чем за 12 ч (%)',
+    hint: 'Используется как запасной вариант в логике возврата, если нет отдельного ключа «последние 2 ч».',
+  },
+};
+
+function settingToInputString(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  if (typeof v === 'string') {
+    try {
+      const p = JSON.parse(v) as unknown;
+      if (typeof p === 'number' && Number.isFinite(p)) return String(p);
+    } catch {
+      /* ignore */
+    }
+    const n = Number(v.replace(',', '.'));
+    if (Number.isFinite(n)) return String(n);
+    return v;
+  }
+  return '';
+}
+
 type Analytics = {
   period_from?: string;
   period_to?: string;
@@ -63,7 +141,13 @@ export default function OwnerPage() {
   const [restPhone, setRestPhone] = useState('');
   const [restOpens, setRestOpens] = useState('');
   const [restCloses, setRestCloses] = useState('');
+  const [restAddress, setRestAddress] = useState('');
+  const [restCity, setRestCity] = useState('');
+  const [restDescription, setRestDescription] = useState('');
   const [restContactMsg, setRestContactMsg] = useState('');
+  const [restContactEmail, setRestContactEmail] = useState('');
+  const [settingsForm, setSettingsForm] = useState<Record<string, string>>({});
+  const [settingsSaveMsg, setSettingsSaveMsg] = useState('');
 
   const [setupName, setSetupName] = useState('');
   const [setupAddress, setSetupAddress] = useState('');
@@ -114,16 +198,34 @@ export default function OwnerPage() {
           phone?: string;
           opens_at?: string;
           closes_at?: string;
+          address?: string;
+          city?: string;
+          description?: string;
+          extra_json?: Record<string, unknown>;
         }>(`/restaurants/${user.restaurant_id}`);
         setRestPhoto(data.photo_url || null);
         setRestPhone(data.phone ?? '');
         setRestOpens(data.opens_at ?? '');
         setRestCloses(data.closes_at ?? '');
+        setRestAddress(data.address ?? '');
+        setRestCity(data.city ?? '');
+        setRestDescription(data.description ?? '');
+        const em = data.extra_json?.contact_email;
+        setRestContactEmail(typeof em === 'string' ? em : '');
       } catch {
         setRestPhoto(null);
       }
     })();
   }, [user?.restaurant_id]);
+
+  useEffect(() => {
+    if (!settings) return;
+    const next: Record<string, string> = {};
+    for (const k of SETTING_FORM_KEYS) {
+      next[k] = settingToInputString(settings[k]);
+    }
+    setSettingsForm(next);
+  }, [settings]);
 
   useEffect(() => {
     if (!user?.restaurant_id || user.role !== 'owner') {
@@ -174,11 +276,44 @@ export default function OwnerPage() {
         phone: restPhone.trim(),
         opens_at: restOpens.trim(),
         closes_at: restCloses.trim(),
+        address: restAddress.trim(),
+        city: restCity.trim(),
+        description: restDescription.trim(),
+        contact_email: restContactEmail.trim(),
       });
       setRestContactMsg('Сохранено');
     } catch (ex: unknown) {
       const m = ex as { response?: { data?: { error?: string } } };
       setRestContactMsg(m.response?.data?.error || 'Ошибка');
+    }
+  };
+
+  const saveSettingsForm = async (e: FormEvent) => {
+    e.preventDefault();
+    setSettingsSaveMsg('');
+    const body: Record<string, number> = {};
+    for (const k of SETTING_FORM_KEYS) {
+      const raw = (settingsForm[k] ?? '').trim();
+      if (raw === '') continue;
+      const n = Number(raw.replace(',', '.'));
+      if (!Number.isFinite(n)) {
+        setSettingsSaveMsg(`Некорректное число: ${k}`);
+        return;
+      }
+      body[k] = n;
+    }
+    if (Object.keys(body).length === 0) {
+      setSettingsSaveMsg('Нет значений для сохранения');
+      return;
+    }
+    try {
+      await api.put('/settings', body);
+      const { data } = await api.get<Record<string, unknown>>('/settings');
+      setSettings(data);
+      setSettingsSaveMsg('Сохранено');
+    } catch (ex: unknown) {
+      const m = ex as { response?: { data?: { error?: string } } };
+      setSettingsSaveMsg(m.response?.data?.error || 'Ошибка сохранения');
     }
   };
 
@@ -365,11 +500,31 @@ export default function OwnerPage() {
       {user?.restaurant_id && (
         <div className="grid2">
           <div className="card">
-            <h2>Контакты и часы</h2>
-            <p className="muted compact">Телефон и время работы показываются в публичной карточке ресторана.</p>
+            <h2>Контакты и карточка</h2>
+            <p className="muted compact">
+              Адрес, город, описание, телефон и часы видны гостям на главной и на странице ресторана.
+            </p>
             <form onSubmit={(e) => void saveRestaurantContact(e)} className="owner-setup-form">
+              <label>Город</label>
+              <input value={restCity} onChange={(e) => setRestCity(e.target.value)} placeholder="Москва" />
+              <label>Адрес</label>
+              <input value={restAddress} onChange={(e) => setRestAddress(e.target.value)} placeholder="ул. Примерная, 1" />
+              <label>Краткое описание</label>
+              <textarea
+                rows={3}
+                value={restDescription}
+                onChange={(e) => setRestDescription(e.target.value)}
+                placeholder="Кухня, атмосфера, особенности"
+              />
               <label>Телефон</label>
               <input value={restPhone} onChange={(e) => setRestPhone(e.target.value)} placeholder="+7…" />
+              <label>Email для гостей (публичная страница)</label>
+              <input
+                type="email"
+                value={restContactEmail}
+                onChange={(e) => setRestContactEmail(e.target.value)}
+                placeholder="hello@restaurant.ru"
+              />
               <label>Открытие (например 10:00)</label>
               <input value={restOpens} onChange={(e) => setRestOpens(e.target.value)} placeholder="10:00" />
               <label>Закрытие (например 23:00)</label>
@@ -513,8 +668,30 @@ export default function OwnerPage() {
 
       {settings && (
         <div className="card">
-          <h2>Настройки</h2>
-          <pre className="settings-pre">{JSON.stringify(settings, null, 2)}</pre>
+          <h2>Настройки бронирования</h2>
+          <p className="muted compact">
+            Значения из таблицы настроек ресторана: они влияют на слоты, депозит и возврат при отмене гостем.
+          </p>
+          <form onSubmit={(e) => void saveSettingsForm(e)} className="owner-settings-form">
+            {SETTING_FORM_KEYS.map((k) => (
+              <div key={k} className="owner-settings-field">
+                <label>
+                  {OWNER_SETTING_META[k].title}
+                  <span className="owner-settings-hint">{OWNER_SETTING_META[k].hint}</span>
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={settingsForm[k] ?? ''}
+                  onChange={(e) => setSettingsForm((s) => ({ ...s, [k]: e.target.value }))}
+                />
+              </div>
+            ))}
+            <button type="submit" className="btn btn-sm">
+              Сохранить настройки бронирования
+            </button>
+            {settingsSaveMsg && <p className="form-msg">{settingsSaveMsg}</p>}
+          </form>
         </div>
       )}
     </div>

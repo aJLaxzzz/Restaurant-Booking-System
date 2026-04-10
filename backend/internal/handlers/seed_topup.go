@@ -8,7 +8,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// ensureExtraDemoRestaurants добавляет недостающие демо-рестораны (trattoria-tverskaya, la-luna, sakura-lite),
+// ensureExtraDemoRestaurants добавляет недостающие демо-рестораны (trattoria-tverskaya, la-luna, sakura-lite, bella-vista),
 // если БД уже была создана старым сидом и полный seedBase не выполнялся.
 func (a *Handlers) ensureExtraDemoRestaurants(ctx context.Context) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("Password1"), a.Cfg.BcryptCost)
@@ -21,16 +21,212 @@ func (a *Handlers) ensureExtraDemoRestaurants(ctx context.Context) {
 	o1 := a.ensureDemoOwnerID(ctx, hashStr, "owner@demo.ru", "Михаил Волков", "+79001234567")
 	o2 := a.ensureDemoOwnerID(ctx, hashStr, "owner2@demo.ru", "Анна Север", "+79001234568")
 	o3 := a.ensureDemoOwnerID(ctx, hashStr, "owner3@demo.ru", "Денис Океан", "+79001234569")
+	o4 := a.ensureDemoOwnerID(ctx, hashStr, "owner-bella@demo.ru", "Рикардо Беллини", "+79001234570")
 
+	a.dedupeBellaVistaRestaurants(ctx)
 	a.topUpTrattoriaIfMissing(ctx, o1)
 	a.topUpLaLunaIfMissing(ctx, o2)
 	a.topUpSakuraIfMissing(ctx, o3)
+	a.topUpBellaVistaIfMissing(ctx, o4)
 	// Повтор без привязки к владельцу: если INSERT падал (напр. из‑за uuid.Nil в owner), добиваем карточки на главной.
 	a.topUpTrattoriaIfMissing(ctx, uuid.Nil)
 	a.topUpLaLunaIfMissing(ctx, uuid.Nil)
 	a.topUpSakuraIfMissing(ctx, uuid.Nil)
+	a.topUpBellaVistaIfMissing(ctx, uuid.Nil)
 	a.ensureDemoWaitersForRestaurants(ctx, hashStr)
+	a.ensureDemoBellaAdmin(ctx, hashStr)
+	a.syncDemoMoscowRestaurants(ctx)
+	a.syncDemoRestaurantContacts(ctx)
+	a.backfillDemoMenuImages(ctx)
 	a.logDemoRestaurantCoverage(ctx)
+}
+
+// dedupeBellaVistaRestaurants оставляет одну строку со slug bella-vista и удаляет лишние «Bella Vista» без канона.
+func (a *Handlers) dedupeBellaVistaRestaurants(ctx context.Context) {
+	rows, err := a.Pool.Query(ctx, `SELECT id FROM restaurants WHERE slug = 'bella-vista' ORDER BY created_at ASC NULLS FIRST`)
+	if err != nil {
+		return
+	}
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	for i := 1; i < len(ids); i++ {
+		_, _ = a.Pool.Exec(ctx, `
+			DELETE FROM reservations res
+			WHERE res.table_id IN (
+				SELECT t.id FROM tables t
+				INNER JOIN halls h ON h.id = t.hall_id
+				WHERE h.restaurant_id = $1)`, ids[i])
+		_, _ = a.Pool.Exec(ctx, `
+			DELETE FROM order_lines ol
+			USING menu_items mi
+			WHERE ol.menu_item_id = mi.id AND mi.restaurant_id = $1`, ids[i])
+		if _, err := a.Pool.Exec(ctx, `DELETE FROM restaurants WHERE id=$1`, ids[i]); err != nil {
+			log.Printf("сид: дедуп bella-vista %s: %v", ids[i], err)
+		} else {
+			log.Printf("сид: удалён дубликат bella-vista %s", ids[i])
+		}
+	}
+	_, _ = a.Pool.Exec(ctx, `
+		DELETE FROM reservations res
+		WHERE res.table_id IN (
+		  SELECT t.id FROM tables t
+		  INNER JOIN halls h ON h.id = t.hall_id
+		  WHERE h.restaurant_id IN (
+		    SELECT r.id FROM restaurants r
+		    WHERE LOWER(TRIM(r.name)) = 'bella vista'
+		      AND r.slug IS DISTINCT FROM 'bella-vista'
+		      AND EXISTS (SELECT 1 FROM restaurants x WHERE x.slug = 'bella-vista')))`)
+	_, _ = a.Pool.Exec(ctx, `
+		DELETE FROM order_lines ol
+		USING menu_items mi
+		WHERE ol.menu_item_id = mi.id
+		  AND mi.restaurant_id IN (
+		    SELECT r.id FROM restaurants r
+		    WHERE LOWER(TRIM(r.name)) = 'bella vista'
+		      AND r.slug IS DISTINCT FROM 'bella-vista'
+		      AND EXISTS (SELECT 1 FROM restaurants x WHERE x.slug = 'bella-vista'))`)
+	ct, err := a.Pool.Exec(ctx, `
+		DELETE FROM restaurants r
+		WHERE LOWER(TRIM(r.name)) = 'bella vista'
+		  AND r.slug IS DISTINCT FROM 'bella-vista'
+		  AND EXISTS (SELECT 1 FROM restaurants x WHERE x.slug = 'bella-vista')`)
+	if err == nil && ct.RowsAffected() > 0 {
+		log.Printf("сид: удалены дубликаты Bella Vista по имени (%d строк)", ct.RowsAffected())
+	}
+	_, _ = a.Pool.Exec(ctx, `
+		DELETE FROM reservations res
+		WHERE res.table_id IN (
+		  SELECT t.id FROM tables t
+		  INNER JOIN halls h ON h.id = t.hall_id
+		  WHERE h.restaurant_id IN (
+		    SELECT r.id FROM restaurants r
+		    WHERE r.slug IS DISTINCT FROM 'bella-vista'
+		      AND LOWER(TRIM(r.slug)) LIKE 'bella-vista%'
+		      AND EXISTS (SELECT 1 FROM restaurants x WHERE x.slug = 'bella-vista')))`)
+	_, _ = a.Pool.Exec(ctx, `
+		DELETE FROM order_lines ol
+		USING menu_items mi
+		WHERE ol.menu_item_id = mi.id
+		  AND mi.restaurant_id IN (
+		    SELECT r.id FROM restaurants r
+		    WHERE r.slug IS DISTINCT FROM 'bella-vista'
+		      AND LOWER(TRIM(r.slug)) LIKE 'bella-vista%'
+		      AND EXISTS (SELECT 1 FROM restaurants x WHERE x.slug = 'bella-vista'))`)
+	ct2, err2 := a.Pool.Exec(ctx, `
+		DELETE FROM restaurants r
+		WHERE r.slug IS DISTINCT FROM 'bella-vista'
+		  AND LOWER(TRIM(r.slug)) LIKE 'bella-vista%'
+		  AND EXISTS (SELECT 1 FROM restaurants x WHERE x.slug = 'bella-vista')`)
+	if err2 == nil && ct2.RowsAffected() > 0 {
+		log.Printf("сид: удалены строки Bella Vista с нестандартным slug (%d строк)", ct2.RowsAffected())
+	}
+	_, _ = a.Pool.Exec(ctx, `
+		DELETE FROM reservations res
+		WHERE res.table_id IN (
+		  SELECT t.id FROM tables t
+		  INNER JOIN halls h ON h.id = t.hall_id
+		  WHERE h.restaurant_id IN (
+		    SELECT r.id FROM restaurants r
+		    WHERE r.slug IS DISTINCT FROM 'bella-vista'
+		      AND (LOWER(TRIM(r.name)) LIKE '%bella%vista%' OR LOWER(TRIM(r.name)) = 'bella vista')
+		      AND EXISTS (SELECT 1 FROM restaurants x WHERE x.slug = 'bella-vista')))`)
+	_, _ = a.Pool.Exec(ctx, `
+		DELETE FROM order_lines ol
+		USING menu_items mi
+		WHERE ol.menu_item_id = mi.id
+		  AND mi.restaurant_id IN (
+		    SELECT r.id FROM restaurants r
+		    WHERE r.slug IS DISTINCT FROM 'bella-vista'
+		      AND (LOWER(TRIM(r.name)) LIKE '%bella%vista%' OR LOWER(TRIM(r.name)) = 'bella vista')
+		      AND EXISTS (SELECT 1 FROM restaurants x WHERE x.slug = 'bella-vista'))`)
+	ct3, err3 := a.Pool.Exec(ctx, `
+		DELETE FROM restaurants r
+		WHERE r.slug IS DISTINCT FROM 'bella-vista'
+		  AND (LOWER(TRIM(r.name)) LIKE '%bella%vista%' OR LOWER(TRIM(r.name)) = 'bella vista')
+		  AND EXISTS (SELECT 1 FROM restaurants x WHERE x.slug = 'bella-vista')`)
+	if err3 == nil && ct3.RowsAffected() > 0 {
+		log.Printf("сид: удалены дубликаты Bella Vista по шаблону имени (%d строк)", ct3.RowsAffected())
+	}
+}
+
+func (a *Handlers) syncDemoMoscowRestaurants(ctx context.Context) {
+	const addrLuna = "Москва, наб. Патриарших прудов, 10"
+	const addrBella = "Москва, Смоленская пл., 6"
+	const descBella = "Итальянская кухня в центре Москвы"
+	_, _ = a.Pool.Exec(ctx, `
+		UPDATE restaurants SET city='Москва', address=$1
+		WHERE slug='la-luna'`, addrLuna)
+	_, _ = a.Pool.Exec(ctx, `
+		UPDATE restaurants SET city='Москва', address=$1, description=$2
+		WHERE slug='bella-vista'`, addrBella, descBella)
+}
+
+// syncDemoRestaurantContacts — телефон, часы, email и локальные фото для демо-slug (старые БД).
+func (a *Handlers) syncDemoRestaurantContacts(ctx context.Context) {
+	type row struct {
+		slug, phone, opens, closes, email, photo string
+	}
+	rows := []row{
+		{"trattoria-tverskaya", "+7 (495) 111-20-01", "10:00", "23:00", "hello@trattoria-demo.rest", demoPhotoTrattoria},
+		{"la-luna", "+7 (495) 222-30-02", "11:00", "23:30", "kontakt@laluna-demo.rest", demoPhotoLaLuna},
+		{"sakura-lite", "+7 (495) 333-40-03", "12:00", "23:00", "info@sakura-demo.rest", demoPhotoSakura},
+		{"bella-vista", "+7 (495) 444-50-04", "10:00", "00:00", "ciao@bellavista-demo.rest", demoPhotoBella},
+	}
+	for _, r := range rows {
+		_, _ = a.Pool.Exec(ctx, `
+			UPDATE restaurants SET
+				phone = $2,
+				opens_at = $3,
+				closes_at = $4,
+				photo_url = $6,
+				extra_json = COALESCE(extra_json, '{}'::jsonb) || jsonb_build_object('contact_email', $5::text)
+			WHERE slug = $1`,
+			r.slug, r.phone, r.opens, r.closes, r.email, r.photo)
+	}
+}
+
+func (a *Handlers) backfillDemoMenuImages(ctx context.Context) {
+	for _, slug := range []string{"trattoria-tverskaya", "la-luna", "sakura-lite", "bella-vista"} {
+		var rid uuid.UUID
+		if err := a.Pool.QueryRow(ctx, `SELECT id FROM restaurants WHERE slug=$1`, slug).Scan(&rid); err != nil {
+			continue
+		}
+		itemRows, err := a.Pool.Query(ctx, `
+			SELECT id FROM menu_items WHERE restaurant_id=$1 AND COALESCE(image_url,'') = ''
+			ORDER BY sort_order, name`, rid)
+		if err != nil {
+			continue
+		}
+		i := 0
+		for itemRows.Next() {
+			var mid uuid.UUID
+			if itemRows.Scan(&mid) != nil {
+				continue
+			}
+			_, _ = a.Pool.Exec(ctx, `UPDATE menu_items SET image_url=$2 WHERE id=$1`, mid, demoDishImageAt(i+slugOffset(slug)))
+			i++
+		}
+		itemRows.Close()
+	}
+}
+
+func slugOffset(slug string) int {
+	switch slug {
+	case "la-luna":
+		return 3
+	case "sakura-lite":
+		return 8
+	case "bella-vista":
+		return 12
+	default:
+		return 0
+	}
 }
 
 // ensureDemoOwnerID гарантирует ненулевой id владельца (upsert + при ошибке — SELECT).
@@ -74,9 +270,9 @@ func (a *Handlers) logDemoRestaurantCoverage(ctx context.Context) {
 	var n int
 	_ = a.Pool.QueryRow(ctx, `
 		SELECT COUNT(*)::int FROM restaurants
-		WHERE slug IN ('trattoria-tverskaya','la-luna','sakura-lite')`).Scan(&n)
-	if n < 3 {
-		log.Printf("сид: в каталоге демо-ресторанов %d из 3 (slug trattoria / la-luna / sakura-lite)", n)
+		WHERE slug IN ('trattoria-tverskaya','la-luna','sakura-lite','bella-vista')`).Scan(&n)
+	if n < 4 {
+		log.Printf("сид: в каталоге демо-ресторанов %d из 4 (slug trattoria / la-luna / sakura-lite / bella-vista)", n)
 	}
 }
 
@@ -92,12 +288,11 @@ func (a *Handlers) topUpTrattoriaIfMissing(ctx context.Context, ownerID uuid.UUI
 	}
 	rid := uuid.New()
 	hid := uuid.New()
-	photo := "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1200&q=80"
 	own := a.ownerIfNoRestaurant(ctx, ownerID)
 	if _, err := a.Pool.Exec(ctx, `
-		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url)
-		VALUES ($1,'Траттория Тверская','Москва, ул. Тверская, 12','trattoria-tverskaya','Москва','Итальянская кухня и вино',$2,$3)`,
-		rid, own, photo); err != nil {
+		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
+		VALUES ($1,'Траттория Тверская','Москва, ул. Тверская, 12','trattoria-tverskaya','Москва','Итальянская кухня и вино',$2,$3,'+7 (495) 111-20-01','10:00','23:00','{"contact_email":"hello@trattoria-demo.rest"}'::jsonb)`,
+		rid, own, demoPhotoTrattoria); err != nil {
 		log.Printf("сид: trattoria-tverskaya: %v", err)
 		return
 	}
@@ -189,12 +384,11 @@ func (a *Handlers) topUpLaLunaIfMissing(ctx context.Context, ownerID uuid.UUID) 
 	}
 	rid := uuid.New()
 	hid := uuid.New()
-	photo := "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=1200&q=80"
 	own := a.ownerIfNoRestaurant(ctx, ownerID)
 	if _, err := a.Pool.Exec(ctx, `
-		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url)
-		VALUES ($1,'La Luna','Санкт-Петербург, наб. реки Фонтанки, 20','la-luna','Санкт-Петербург','Европейская кухня',$2,$3)`,
-		rid, own, photo); err != nil {
+		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
+		VALUES ($1,'La Luna','Москва, наб. Патриарших прудов, 10','la-luna','Москва','Европейская кухня',$2,$3,'+7 (495) 222-30-02','11:00','23:30','{"contact_email":"kontakt@laluna-demo.rest"}'::jsonb)`,
+		rid, own, demoPhotoLaLuna); err != nil {
 		log.Printf("сид: la-luna: %v", err)
 		return
 	}
@@ -271,12 +465,11 @@ func (a *Handlers) topUpSakuraIfMissing(ctx context.Context, ownerID uuid.UUID) 
 	}
 	rid := uuid.New()
 	hid := uuid.New()
-	photo := "https://images.unsplash.com/photo-1579584425555-c7ce17fd4351?w=1200&q=80"
 	own := a.ownerIfNoRestaurant(ctx, ownerID)
 	if _, err := a.Pool.Exec(ctx, `
-		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url)
-		VALUES ($1,'Сакура Лайт','Москва, ул. Покровка, 3','sakura-lite','Москва','Японская кухня',$2,$3)`,
-		rid, own, photo); err != nil {
+		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
+		VALUES ($1,'Сакура Лайт','Москва, ул. Покровка, 3','sakura-lite','Москва','Японская кухня',$2,$3,'+7 (495) 333-40-03','12:00','23:00','{"contact_email":"info@sakura-demo.rest"}'::jsonb)`,
+		rid, own, demoPhotoSakura); err != nil {
 		log.Printf("сид: sakura-lite: %v", err)
 		return
 	}
@@ -339,7 +532,105 @@ func (a *Handlers) patchSakuraHallTablesMenu(ctx context.Context, rid uuid.UUID)
 	}
 }
 
-// ensureDemoWaitersForRestaurants создаёт официантов la-luna / sakura-lite, если их ещё нет (старые БД).
+func (a *Handlers) topUpBellaVistaIfMissing(ctx context.Context, ownerID uuid.UUID) {
+	var n int
+	_ = a.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM restaurants WHERE slug=$1`, "bella-vista").Scan(&n)
+	if n > 0 {
+		var rid uuid.UUID
+		if err := a.Pool.QueryRow(ctx, `SELECT id FROM restaurants WHERE slug=$1`, "bella-vista").Scan(&rid); err == nil {
+			a.patchBellaVistaHallTablesMenu(ctx, rid)
+		}
+		return
+	}
+	rid := uuid.New()
+	hid := uuid.New()
+	own := a.ownerIfNoRestaurant(ctx, ownerID)
+	if _, err := a.Pool.Exec(ctx, `
+		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
+		VALUES ($1,'Bella Vista','Москва, Смоленская пл., 6','bella-vista','Москва','Итальянская кухня в центре Москвы',$2,$3,'+7 (495) 444-50-04','10:00','00:00','{"contact_email":"ciao@bellavista-demo.rest"}'::jsonb)`,
+		rid, own, demoPhotoBella); err != nil {
+		log.Printf("сид: bella-vista: %v", err)
+		return
+	}
+	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Зал Bella Vista')`, hid, rid)
+	wallsBella := `{"walls":[{"x1":0,"y1":0,"x2":880,"y2":0},{"x1":880,"y1":0,"x2":880,"y2":600},{"x1":880,"y1":600,"x2":0,"y2":600},{"x1":0,"y1":600,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Панорама","x":40,"y":36,"w":160,"h":28}]}`
+	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hid, wallsBella)
+	bellaTables := []struct {
+		n   int
+		cap int
+		x, y float64
+	}{
+		{1, 2, 120, 110}, {2, 4, 300, 130}, {3, 4, 500, 150},
+		{4, 6, 220, 320}, {5, 4, 460, 340},
+	}
+	for _, t := range bellaTables {
+		_, _ = a.Pool.Exec(ctx, `
+			INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape, status, width, height)
+			VALUES ($1,$2,$3,$4,$5,'rect','available',88,72)`, hid, t.n, t.cap, t.x, t.y)
+	}
+	a.seedMenuBellaVista(ctx, rid)
+	log.Println("сид: дозаполнен ресторан bella-vista")
+}
+
+func (a *Handlers) patchBellaVistaHallTablesMenu(ctx context.Context, rid uuid.UUID) {
+	var hc, mc, tc int
+	_ = a.Pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM halls WHERE restaurant_id=$1`, rid).Scan(&hc)
+	_ = a.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)::int FROM tables t
+		JOIN halls h ON h.id = t.hall_id WHERE h.restaurant_id=$1`, rid).Scan(&tc)
+	_ = a.Pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM menu_categories WHERE restaurant_id=$1`, rid).Scan(&mc)
+	if hc > 0 && tc > 0 && mc > 0 {
+		return
+	}
+	var hid uuid.UUID
+	if hc == 0 {
+		hid = uuid.New()
+		_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Зал Bella Vista')`, hid, rid)
+		wallsBella := `{"walls":[{"x1":0,"y1":0,"x2":880,"y2":0},{"x1":880,"y1":0,"x2":880,"y2":600},{"x1":880,"y1":600,"x2":0,"y2":600},{"x1":0,"y1":600,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Панорама","x":40,"y":36,"w":160,"h":28}]}`
+		_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hid, wallsBella)
+	} else if tc == 0 {
+		_ = a.Pool.QueryRow(ctx, `SELECT id FROM halls WHERE restaurant_id=$1 ORDER BY created_at LIMIT 1`, rid).Scan(&hid)
+	}
+	if hid != uuid.Nil && tc == 0 {
+		bellaTables := []struct {
+			n   int
+			cap int
+			x, y float64
+		}{
+			{1, 2, 120, 110}, {2, 4, 300, 130}, {3, 4, 500, 150},
+			{4, 6, 220, 320}, {5, 4, 460, 340},
+		}
+		for _, t := range bellaTables {
+			_, _ = a.Pool.Exec(ctx, `
+				INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape, status, width, height)
+				VALUES ($1,$2,$3,$4,$5,'rect','available',88,72)`, hid, t.n, t.cap, t.x, t.y)
+		}
+		log.Printf("сид: bella-vista %s — добавлены столы", rid)
+	}
+	if mc == 0 {
+		a.seedMenuBellaVista(ctx, rid)
+		log.Printf("сид: bella-vista %s — дозаполнено меню", rid)
+	}
+}
+
+// ensureDemoBellaAdmin — администратор Bella Vista (старые БД без полного seedBase).
+func (a *Handlers) ensureDemoBellaAdmin(ctx context.Context, hashStr string) {
+	var rid uuid.UUID
+	if err := a.Pool.QueryRow(ctx, `SELECT id FROM restaurants WHERE slug='bella-vista' LIMIT 1`).Scan(&rid); err != nil {
+		return
+	}
+	_, _ = a.Pool.Exec(ctx, `
+		INSERT INTO users (email, password_hash, full_name, phone, role, email_verified, restaurant_id)
+		VALUES ('admin-bella@demo.ru',$1,'Виктория Беллини','+79001234574','admin',true,$2)
+		ON CONFLICT (email) DO UPDATE SET
+			restaurant_id = EXCLUDED.restaurant_id,
+			phone = EXCLUDED.phone,
+			role = CASE WHEN users.role = 'owner' THEN users.role ELSE EXCLUDED.role END,
+			full_name = CASE WHEN users.role = 'owner' THEN users.full_name ELSE EXCLUDED.full_name END`,
+		hashStr, rid)
+}
+
+// ensureDemoWaitersForRestaurants создаёт официантов la-luna / sakura-lite / bella-vista, если их ещё нет (старые БД).
 func (a *Handlers) ensureDemoWaitersForRestaurants(ctx context.Context, hashStr string) {
 	type row struct {
 		slug string
@@ -349,6 +640,7 @@ func (a *Handlers) ensureDemoWaitersForRestaurants(ctx context.Context, hashStr 
 	rows := []row{
 		{"la-luna", "waiter3@demo.ru", "Павел Невский", "+79001234571"},
 		{"sakura-lite", "waiter4@demo.ru", "Юлия Сакура", "+79001234572"},
+		{"bella-vista", "waiter5@demo.ru", "Марко Виста", "+79001234573"},
 	}
 	for _, r := range rows {
 		var rid uuid.UUID
@@ -359,7 +651,10 @@ func (a *Handlers) ensureDemoWaitersForRestaurants(ctx context.Context, hashStr 
 		_, _ = a.Pool.Exec(ctx, `
 			INSERT INTO users (email, password_hash, full_name, phone, role, email_verified, restaurant_id)
 			VALUES ($1,$2,$3,$4,'waiter',true,$5)
-			ON CONFLICT (email) DO UPDATE SET restaurant_id = EXCLUDED.restaurant_id, full_name = EXCLUDED.full_name`,
+			ON CONFLICT (email) DO UPDATE SET
+				restaurant_id = EXCLUDED.restaurant_id,
+				full_name = CASE WHEN users.role = 'owner' THEN users.full_name ELSE EXCLUDED.full_name END,
+				role = CASE WHEN users.role = 'owner' THEN users.role ELSE EXCLUDED.role END`,
 			r.email, hashStr, r.name, r.phone, rid)
 	}
 }

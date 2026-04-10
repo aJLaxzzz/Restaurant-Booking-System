@@ -1,5 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import axios from 'axios';
 import { api } from '../api';
+
+function menuLoadErrorMessage(e: unknown): string {
+  if (axios.isAxiosError(e)) {
+    if (e.response?.status === 403) {
+      return 'Нет привязки к заведению. Попросите владельца добавить вас в «Команда» в кабинете владельца или войдите под демо-админом.';
+    }
+    if (e.response?.status === 401) {
+      return 'Сессия истекла — войдите снова.';
+    }
+    const err = (e.response?.data as { error?: string } | undefined)?.error;
+    if (err) return err;
+  }
+  return 'Ошибка загрузки меню';
+}
 
 type Cat = { id: string; name: string; parent_id?: string; sort_order: number; is_active: boolean };
 type Item = {
@@ -37,7 +53,7 @@ export function AdminMenu() {
   };
 
   useEffect(() => {
-    void load().catch(() => setMsg('Нет доступа к меню'));
+    void load().catch((e) => setMsg(menuLoadErrorMessage(e)));
   }, []);
 
   const addCategory = async () => {
@@ -66,25 +82,12 @@ export function AdminMenu() {
     await load();
   };
 
-  const delItem = async (id: string) => {
-    if (!confirm('Удалить позицию?')) return;
-    await api.delete(`/admin/menu/items/${id}`);
-    await load();
-  };
-
-  const uploadDishPhoto = async (itemId: string, file: File | null) => {
-    if (!file) return;
-    const fd = new FormData();
-    fd.append('photo', file);
-    await api.post(`/upload/menu-item-photo?item_id=${encodeURIComponent(itemId)}`, fd);
-    await load();
-  };
-
   return (
     <div className="card">
       <h2>Меню заведения</h2>
       <p className="muted">
-        Категории и позиции видны гостю в карточке ресторана. Цены в рублях. Фото блюд — JPEG/PNG/WebP до 5 МБ.
+        Категории и новые блюда. Редактирование существующих цен и названий — во вкладке{' '}
+        <Link to="/admin/menu/positions">Позиции меню</Link>. Фото — JPEG/PNG/WebP до 5 МБ.
       </p>
 
       <div className="menu-admin-grid">
@@ -157,37 +160,10 @@ export function AdminMenu() {
           <button type="button" className="btn" onClick={() => void addItem()}>
             Добавить блюдо
           </button>
-          <h3 className="menu-admin-items-heading">Текущие позиции</h3>
-          <div className="public-menu-grid menu-admin-cards">
-            {items.map((it) => (
-              <article key={it.id} className="public-menu-card menu-admin-card">
-                <div
-                  className={`public-menu-card-visual${it.image_url ? '' : ' public-menu-card-visual--empty'}`}
-                  style={it.image_url ? { backgroundImage: `url(${it.image_url})` } : undefined}
-                  aria-hidden
-                />
-                <div className="public-menu-card-body">
-                  <h4>{it.name}</h4>
-                  {it.description ? <p className="muted public-menu-desc">{it.description}</p> : null}
-                  <p className="public-menu-price">{(it.price_kopecks / 100).toFixed(0)} ₽</p>
-                  <div className="btn-row" style={{ marginTop: 'auto', flexWrap: 'wrap' }}>
-                    <label className="btn-sm secondary" style={{ cursor: 'pointer' }}>
-                      Фото
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        hidden
-                        onChange={(e) => void uploadDishPhoto(it.id, e.target.files?.[0] ?? null)}
-                      />
-                    </label>
-                    <button type="button" className="secondary btn-sm" onClick={() => void delItem(it.id)}>
-                      Удалить
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
+          <p className="muted compact" style={{ marginTop: '1rem' }}>
+            В списке сейчас <strong>{items.length}</strong> позиций. Управление ими — в{' '}
+            <Link to="/admin/menu/positions">Позиции меню</Link>.
+          </p>
         </div>
       </div>
       {msg && <p className="form-msg">{msg}</p>}

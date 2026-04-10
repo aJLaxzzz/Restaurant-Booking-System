@@ -889,6 +889,120 @@ button.link-like:hover {
   border: 1px solid rgba(129, 140, 248, 0.2);
 }
 
+.home-city-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.home-city-chip {
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border, #334155);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.home-city-chip:hover {
+  color: var(--text);
+  border-color: rgba(129, 140, 248, 0.45);
+}
+
+.home-city-chip--active {
+  color: #e2e8f0;
+  border-color: rgba(129, 140, 248, 0.55);
+  background: rgba(129, 140, 248, 0.12);
+}
+
+.my-res-order {
+  padding: 1rem 0 0.5rem;
+  border-top: 1px solid var(--border, #334155);
+}
+
+.my-res-order-title {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.my-res-order-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.my-res-menu-grid {
+  margin-bottom: 1rem;
+}
+
+.my-res-menu-card {
+  padding: 0;
+}
+
+.my-res-menu-card-hit {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: inherit;
+}
+
+.my-res-menu-card-hit:hover .public-menu-card-body h4 {
+  color: #a5b4fc;
+}
+
+.my-res-order-lines {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.75rem;
+}
+
+.my-res-order-lines li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  font-size: 0.92rem;
+}
+
+.my-res-order-total {
+  margin: 0;
+}
+
+.my-res-order-row td {
+  background: rgba(15, 23, 42, 0.35);
+  vertical-align: top;
+}
+
+.owner-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.owner-settings-field label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.88rem;
+}
+
+.owner-settings-field input {
+  max-width: 280px;
+}
+
 /* Сетка карточек ресторанов */
 .home-venue-grid {
   display: grid;
@@ -1005,6 +1119,12 @@ button.link-like:hover {
   line-height: 1.25;
 }
 
+.home-venue-line {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
 .home-venue-desc {
   margin: 0;
   font-size: 0.92rem;
@@ -1095,8 +1215,20 @@ button.link-like:hover {
 
 .home-perks-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1.25rem;
+}
+
+@media (max-width: 1100px) {
+  .home-perks-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .home-perks-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .home-perk {
@@ -1527,6 +1659,102 @@ a.restaurant-card--link:hover {
   min-height: 140px;
 }
 
+.admin-menu-pos-table-wrap {
+  overflow-x: auto;
+  margin-top: 1rem;
+}
+.admin-menu-pos-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.admin-menu-pos-table th,
+.admin-menu-pos-table td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+.admin-menu-pos-input {
+  width: 100%;
+  min-width: 140px;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: inherit;
+}
+.admin-menu-pos-input--narrow {
+  min-width: 72px;
+  max-width: 100px;
+}
+.admin-menu-pos-select {
+  min-width: 120px;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: inherit;
+}
+.admin-menu-pos-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.admin-menu-pos-actions {
+  white-space: nowrap;
+}
+.admin-menu-pos-actions .btn-sm {
+  margin-right: 0.35rem;
+  margin-bottom: 0.25rem;
+}
+
+.hall-size-input {
+  width: 4.5rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: inherit;
+  font-size: 0.85rem;
+}
+
+.owner-settings-dl {
+  margin: 1rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.owner-settings-row dt {
+  margin: 0;
+  font-size: 0.88rem;
+}
+.owner-settings-row dt code {
+  font-size: 0.85rem;
+  color: #a5b4fc;
+}
+.owner-settings-hint {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-weight: 400;
+}
+.owner-settings-row dd {
+  margin: 0.2rem 0 0;
+  font-size: 0.95rem;
+}
+.owner-settings-raw {
+  margin-top: 1rem;
+}
+.owner-settings-raw summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .admin-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1569,4 +1797,307 @@ a.restaurant-card--link:hover {
 .hall-place-hint {
   margin: 0.35rem 0 0.75rem;
   font-size: 0.88rem;
+}
+
+.hall-toolbar-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  padding: 0.15rem 0.5rem 0.15rem 0;
+  border-left: 1px solid rgba(51, 65, 85, 0.6);
+  margin-left: 0.25rem;
+}
+
+.hall-toolbar-group:first-of-type {
+  border-left: none;
+  margin-left: 0;
+  padding-left: 0;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(2, 6, 23, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal-panel {
+  width: min(520px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+.admin-menu-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.admin-menu-pos-section {
+  margin-top: 1.75rem;
+}
+.admin-menu-pos-section:first-of-type {
+  margin-top: 0.5rem;
+}
+.admin-menu-pos-section-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  color: #e2e8f0;
+}
+
+label.admin-menu-pos-card-avail .admin-checkbox-input,
+.admin-menu-pos-check .admin-checkbox-input {
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  border: 2px solid rgba(148, 163, 184, 0.65);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+label.admin-menu-pos-card-avail .admin-checkbox-input:hover,
+.admin-menu-pos-check .admin-checkbox-input:hover {
+  border-color: rgba(129, 140, 248, 0.75);
+}
+label.admin-menu-pos-card-avail .admin-checkbox-input:focus-visible,
+.admin-menu-pos-check .admin-checkbox-input:focus-visible {
+  outline: 2px solid rgba(129, 140, 248, 0.65);
+  outline-offset: 2px;
+}
+label.admin-menu-pos-card-avail .admin-checkbox-input:checked,
+.admin-menu-pos-check .admin-checkbox-input:checked {
+  border-color: #818cf8;
+  background: rgba(99, 102, 241, 0.35);
+}
+label.admin-menu-pos-card-avail .admin-checkbox-input:checked::after,
+.admin-menu-pos-check .admin-checkbox-input:checked::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0;
+  width: 5px;
+  height: 9px;
+  border: solid #e0e7ff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.admin-menu-pos-card {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.admin-menu-pos-card:hover {
+  border-color: rgba(129, 140, 248, 0.45);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.admin-menu-pos-thumb {
+  height: 120px;
+  background-size: cover;
+  background-position: center;
+  background-color: #1e293b;
+}
+
+.admin-menu-pos-thumb--empty {
+  background-image: linear-gradient(135deg, #1e293b, #334155);
+}
+
+.admin-menu-pos-card-body {
+  padding: 0.65rem 0.85rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.admin-menu-pos-card-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.admin-menu-pos-card-price {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.admin-menu-pos-card-avail {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-top: 0.25rem;
+}
+
+.waiter-order-qty-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.waiter-menu-grid {
+  margin-top: 0.5rem;
+}
+
+.waiter-order-add-modal {
+  width: min(720px, 100%);
+  max-height: min(90vh, 880px);
+}
+
+.waiter-order-modal-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.75rem 0 0.5rem;
+}
+
+.waiter-menu-card {
+  padding: 0;
+}
+
+.waiter-menu-card-hit {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: inherit;
+}
+
+.waiter-menu-card-hit:hover .public-menu-card-body h4 {
+  color: #a5b4fc;
+}
+
+.hall-editor-table-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.hall-editor-table-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.88rem;
+}
+
+.admin-work-cal {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.admin-work-cal h3 {
+  margin-top: 0;
+}
+
+.admin-work-cal-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.admin-work-cal-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  max-width: 420px;
+}
+
+.admin-work-cal-label select {
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+.admin-work-cal-month {
+  align-self: center;
+  font-weight: 600;
+  text-transform: capitalize;
+  min-width: 10rem;
+  text-align: center;
+}
+
+.admin-work-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  max-width: 420px;
+}
+
+.admin-work-cal-weekday {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.admin-work-cal-cell {
+  aspect-ratio: 1;
+  min-height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.admin-work-cal-cell:hover:not(:disabled) {
+  border-color: var(--brand);
+}
+
+.admin-work-cal-cell--muted {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+.admin-work-cal-cell--on {
+  background: rgba(129, 140, 248, 0.25);
+  border-color: var(--brand);
+  font-weight: 600;
+}
+
+.admin-work-cal-cell:disabled:not(.admin-work-cal-cell--muted) {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

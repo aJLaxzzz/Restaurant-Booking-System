@@ -3,6 +3,7 @@ import { api } from '../api';
 import { format, parseISO } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { useAuth } from '../auth';
+import { reservationStatusLabelRu } from '../utils/reservationStatus';
 
 type Row = {
   reservation_id: string;
@@ -14,7 +15,15 @@ type Row = {
   phone?: string;
 };
 
-type MenuItem = { id: string; name: string; price_kopecks: number };
+type MenuItem = {
+  id: string;
+  category_id: string;
+  name: string;
+  price_kopecks: number;
+  image_url?: string;
+  description?: string;
+};
+type MenuCategory = { id: string; name: string; sort_order: number };
 type OrderLine = {
   id: string;
   item_name: string;
@@ -35,18 +44,13 @@ function WaiterOrderPanel({
   const [lines, setLines] = useState<OrderLine[]>([]);
   const [total, setTotal] = useState(0);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [categories, setCategories] = useState<MenuCategory[]>([]);
+  const [activeCatId, setActiveCatId] = useState<string | null>(null);
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
-  const [itemId, setItemId] = useState('');
-  const [dishQuery, setDishQuery] = useState('');
-  const [qty, setQty] = useState(1);
+  const [qtyStr, setQtyStr] = useState('1');
   const [guestLabel, setGuestLabel] = useState('Гость 1');
   const [msg, setMsg] = useState('');
-
-  const filteredMenu = useMemo(() => {
-    const q = dishQuery.trim().toLowerCase();
-    if (!q) return menuItems.slice(0, 20);
-    return menuItems.filter((m) => m.name.toLowerCase().includes(q)).slice(0, 15);
-  }, [menuItems, dishQuery]);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const load = async () => {
     const { data } = await api.get<{
@@ -58,15 +62,16 @@ function WaiterOrderPanel({
     setLines(Array.isArray(data.lines) ? (data.lines as OrderLine[]) : []);
     setTotal(data.total_kopecks || 0);
     if (data.restaurant_id) {
-      const m = await api.get<{ items: { id: string; name: string; price_kopecks: number }[] | null }>(
+      const m = await api.get<{ items?: MenuItem[] | null; categories?: MenuCategory[] | null }>(
         `/restaurants/${data.restaurant_id}/menu`
       );
       const items = Array.isArray(m.data.items) ? m.data.items : [];
+      const catsRaw = Array.isArray(m.data.categories) ? m.data.categories : [];
       setMenuItems(items);
-      if (!itemId && items.length) {
-        setItemId(items[0].id);
-        setDishQuery(items[0].name);
-      }
+      const cats = [...catsRaw].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'ru'));
+      setCategories(cats);
+      const firstWith = cats.find((c) => items.some((i) => i.category_id === c.id));
+      setActiveCatId(firstWith?.id ?? cats[0]?.id ?? null);
     }
   };
 
@@ -75,12 +80,23 @@ function WaiterOrderPanel({
     void load().catch(() => setMsg('Не удалось загрузить заказ'));
   }, [reservationId, resStatus]);
 
-  const addLine = async () => {
-    if (!canEditMenu || !itemId) return;
+  const itemsInCategory = useMemo(() => {
+    if (!activeCatId) return [];
+    return menuItems.filter((i) => i.category_id === activeCatId);
+  }, [menuItems, activeCatId]);
+
+  const qty = useMemo(() => {
+    const n = parseInt(qtyStr, 10);
+    if (!Number.isFinite(n) || n < 1) return 1;
+    return Math.min(99, n);
+  }, [qtyStr]);
+
+  const addLine = async (menuItemId: string) => {
+    if (!canEditMenu || !menuItemId) return;
     setMsg('');
     try {
       await api.post(`/reservations/${reservationId}/order/lines`, {
-        menu_item_id: itemId,
+        menu_item_id: menuItemId,
         quantity: qty,
         guest_label: guestLabel,
         note: '',
@@ -101,11 +117,6 @@ function WaiterOrderPanel({
     }
   };
 
-  const pickDish = (m: MenuItem) => {
-    setItemId(m.id);
-    setDishQuery(m.name);
-  };
-
   if (resStatus !== 'seated' && resStatus !== 'in_service') {
     return null;
   }
@@ -113,49 +124,6 @@ function WaiterOrderPanel({
   return (
     <div className="waiter-order-block">
       <h4>Заказ по меню</h4>
-      {restaurantId && menuItems.length > 0 && canEditMenu && (
-        <div className="waiter-order-add">
-          <div className="waiter-dish-search">
-            <label className="compact muted">Блюдо (вводите название)</label>
-            <input
-              type="text"
-              value={dishQuery}
-              onChange={(e) => {
-                setDishQuery(e.target.value);
-                const q = e.target.value.trim().toLowerCase();
-                const hit = menuItems.find((m) => m.name.toLowerCase() === q);
-                if (hit) setItemId(hit.id);
-              }}
-              placeholder="Начните вводить…"
-              list={`menu-dl-${reservationId}`}
-            />
-            <datalist id={`menu-dl-${reservationId}`}>
-              {menuItems.map((m) => (
-                <option key={m.id} value={m.name} />
-              ))}
-            </datalist>
-            {filteredMenu.length > 0 && (
-              <ul className="waiter-suggest-list">
-                {filteredMenu.map((m) => (
-                  <li key={m.id}>
-                    <button type="button" className="link-like" onClick={() => pickDish(m)}>
-                      {m.name} — {(m.price_kopecks / 100).toFixed(0)} ₽
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <input type="number" min={1} max={99} value={qty} onChange={(e) => setQty(Number(e.target.value))} />
-          <input placeholder="Кто заказал" value={guestLabel} onChange={(e) => setGuestLabel(e.target.value)} />
-          <button type="button" className="btn btn-sm" onClick={() => void addLine()}>
-            Добавить
-          </button>
-        </div>
-      )}
-      {restaurantId && menuItems.length > 0 && !canEditMenu && (
-        <p className="hint">Добавление позиций доступно только назначенному официанту за стол.</p>
-      )}
       <ul className="waiter-order-lines">
         {lines.map((l) => (
           <li key={l.id}>
@@ -171,6 +139,83 @@ function WaiterOrderPanel({
       <p className="waiter-order-total">
         <strong>Итого: {(total / 100).toFixed(0)} ₽</strong>
       </p>
+      {restaurantId && menuItems.length > 0 && canEditMenu && (
+        <button type="button" className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setMenuOpen(true)}>
+          Добавить блюдо
+        </button>
+      )}
+      {restaurantId && menuItems.length > 0 && !canEditMenu && (
+        <p className="hint">Добавление позиций доступно только назначенному официанту за стол.</p>
+      )}
+      {menuOpen && restaurantId && menuItems.length > 0 && canEditMenu && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="waiter-order-modal-title"
+          onClick={() => setMenuOpen(false)}
+        >
+          <div className="modal-panel waiter-order-add-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 id="waiter-order-modal-title">Добавить блюдо</h3>
+            {categories.length > 0 && (
+              <div className="waiter-order-modal-cats" role="tablist" aria-label="Категории меню">
+                {categories.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={c.id === activeCatId ? 'btn btn-sm' : 'secondary btn-sm'}
+                    onClick={() => setActiveCatId(c.id)}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="waiter-order-qty-row">
+              <label className="compact muted">Кол-во</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={qtyStr}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '' || /^\d{1,2}$/.test(v)) setQtyStr(v);
+                }}
+                onBlur={() => {
+                  const n = parseInt(qtyStr, 10);
+                  if (!Number.isFinite(n) || n < 1) setQtyStr('1');
+                  else setQtyStr(String(Math.min(99, n)));
+                }}
+              />
+              <input placeholder="Кто заказал" value={guestLabel} onChange={(e) => setGuestLabel(e.target.value)} />
+            </div>
+            <div className="public-menu-grid waiter-menu-grid">
+              {itemsInCategory.map((m) => (
+                <article key={m.id} className="public-menu-card waiter-menu-card">
+                  <button type="button" className="waiter-menu-card-hit" onClick={() => void addLine(m.id)}>
+                    <div
+                      className={`public-menu-card-visual${m.image_url ? '' : ' public-menu-card-visual--empty'}`}
+                      style={m.image_url ? { backgroundImage: `url(${m.image_url})` } : undefined}
+                      aria-hidden
+                    />
+                    <div className="public-menu-card-body">
+                      <h4>{m.name}</h4>
+                      {m.description ? <p className="muted public-menu-desc">{m.description}</p> : null}
+                      <p className="public-menu-price">{(m.price_kopecks / 100).toFixed(0)} ₽ · в заказ</p>
+                    </div>
+                  </button>
+                </article>
+              ))}
+            </div>
+            {itemsInCategory.length === 0 && <p className="muted compact">В этой категории нет позиций.</p>}
+            <div className="btn-row" style={{ marginTop: 12 }}>
+              <button type="button" className="secondary" onClick={() => setMenuOpen(false)}>
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {msg && <p className="form-msg">{msg}</p>}
     </div>
   );
@@ -228,7 +273,7 @@ export default function WaiterPage() {
           <div key={r.reservation_id} className="waiter-row">
             <div className="waiter-row-head">
               <strong>Стол №{r.table_number}</strong>
-              <span className="status-pill">{r.status}</span>
+              <span className="status-pill">{reservationStatusLabelRu(r.status)}</span>
             </div>
             <p className="waiter-meta">
               {r.client_name}

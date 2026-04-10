@@ -12,6 +12,7 @@ import AdminBookingsPage from './pages/admin/AdminBookingsPage';
 import AdminMenuPage from './pages/admin/AdminMenuPage';
 import AdminStaffPage from './pages/admin/AdminStaffPage';
 import AdminManualPage from './pages/admin/AdminManualPage';
+import AdminMenuPositionsPage from './pages/admin/AdminMenuPositionsPage';
 import OwnerPage from './pages/OwnerPage';
 import WaiterPage from './pages/WaiterPage';
 
@@ -45,12 +46,6 @@ function NavBar() {
           <Link to="/" className={isActive('/') && loc.pathname === '/' ? 'active' : ''}>
             Главная
           </Link>
-
-          {(user?.role === 'client' || !user) && (
-            <Link to="/hall" className={isActive('/hall') ? 'active' : ''}>
-              Бронирование
-            </Link>
-          )}
 
           {user?.role === 'admin' && (
             <>
@@ -169,6 +164,7 @@ export default function App() {
           >
             <Route index element={<AdminBookingsPage />} />
             <Route path="menu" element={<AdminMenuPage />} />
+            <Route path="menu/positions" element={<AdminMenuPositionsPage />} />
             <Route path="staff" element={<AdminStaffPage />} />
             <Route path="manual" element={<AdminManualPage />} />
           </Route>

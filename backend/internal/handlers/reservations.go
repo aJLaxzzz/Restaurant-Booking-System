@@ -17,7 +17,7 @@ func (a *Handlers) handleReservationsMy(w http.ResponseWriter, r *http.Request) 
 	u := userFrom(r)
 	rows, err := a.Pool.Query(r.Context(), `
 		SELECT r.id, r.table_id, r.start_time, r.end_time, r.guest_count, r.status, r.comment, r.created_at,
-		       t.table_number, h.id
+		       t.table_number, h.id, h.restaurant_id
 		FROM reservations r
 		JOIN tables t ON t.id = r.table_id
 		JOIN halls h ON h.id = t.hall_id
@@ -30,15 +30,16 @@ func (a *Handlers) handleReservationsMy(w http.ResponseWriter, r *http.Request) 
 	defer rows.Close()
 	out := make([]map[string]any, 0)
 	for rows.Next() {
-		var id, tid, hid uuid.UUID
+		var id, tid, hid, restID uuid.UUID
 		var st, end time.Time
 		var guests int
 		var status, comment string
 		var created time.Time
 		var tnum int
-		_ = rows.Scan(&id, &tid, &st, &end, &guests, &status, &comment, &created, &tnum, &hid)
+		_ = rows.Scan(&id, &tid, &st, &end, &guests, &status, &comment, &created, &tnum, &hid, &restID)
 		out = append(out, map[string]any{
 			"id": id.String(), "table_id": tid.String(), "hall_id": hid.String(),
+			"restaurant_id": restID.String(),
 			"start_time": st, "end_time": end, "guest_count": guests, "status": status,
 			"comment": comment, "created_at": created, "table_number": tnum,
 		})

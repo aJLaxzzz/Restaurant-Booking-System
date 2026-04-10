@@ -19,6 +19,7 @@ func (a *Handlers) MountAuth(r chi.Router) {
 // MountHall — залы, схема, столы, блокировки.
 func (a *Handlers) MountHall(r chi.Router) {
 	a.MountRestaurantsPublic(r)
+	r.Get("/booking-defaults", a.handleBookingDefaultsGet)
 	r.With(a.optionalAuth).Get("/halls", a.handleHallsList)
 	r.Get("/halls/{id}", a.handleHallGet)
 	r.With(a.optionalAuth).Get("/halls/{id}/layout", a.handleLayoutGet)
@@ -60,6 +61,8 @@ func (a *Handlers) MountReservation(r chi.Router) {
 		r.With(a.requireRoles("owner")).Post("/owner/staff/assign", a.handleOwnerStaffAssign)
 		r.With(a.requireRoles("admin")).Post("/admin/staff/assign", a.handleAdminStaffAssign)
 		r.With(a.requireRoles("admin")).Get("/admin/waiters", a.handleAdminWaitersList)
+		r.With(a.requireRoles("admin")).Get("/admin/waiters/{id}/work-dates", a.handleAdminWaiterWorkDatesGet)
+		r.With(a.requireRoles("admin")).Put("/admin/waiters/{id}/work-dates", a.handleAdminWaiterWorkDatesPut)
 
 		r.With(a.requireRoles("owner")).Get("/owner/analytics", a.handleOwnerAnalytics)
 		r.With(a.requireRoles("owner")).Get("/owner/finance", a.handleOwnerFinance)

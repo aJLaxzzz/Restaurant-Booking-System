@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { HallCanvas, TableShape } from '../components/HallCanvas';
 import { api } from '../api';
@@ -6,15 +6,36 @@ import { useAuth } from '../auth';
 import { addHours, format, isValid, parse } from 'date-fns';
 import { ru } from 'date-fns/locale';
 
-const SLOT_HOURS = 2;
+type BookingDefaults = {
+  default_slot_duration_hours: number;
+  booking_open_hour: number;
+  booking_close_hour: number;
+  slot_minutes: number;
+};
 
-function slots(): string[] {
+const FALLBACK_DEFAULTS: BookingDefaults = {
+  default_slot_duration_hours: 2,
+  booking_open_hour: 10,
+  booking_close_hour: 23,
+  slot_minutes: 30,
+};
+
+function pad2(n: number) {
+  return n.toString().padStart(2, '0');
+}
+
+/** Сетка времени начала визита из настроек (booking_open_hour … booking_close_hour, шаг slot_minutes). */
+function buildTimeSlots(openH: number, closeH: number, slotMinutes: number): string[] {
+  const startM = openH * 60;
+  let endM = closeH === 0 || closeH === 24 ? 24 * 60 : closeH * 60;
+  if (endM < startM) endM = 24 * 60;
   const out: string[] = [];
-  for (let h = 10; h < 23; h++) {
-    out.push(`${h.toString().padStart(2, '0')}:00`);
-    out.push(`${h.toString().padStart(2, '0')}:30`);
+  for (let t = startM; t <= endM; t += slotMinutes) {
+    if (t >= 24 * 60) break;
+    const hh = Math.floor(t / 60);
+    const mm = t % 60;
+    out.push(`${pad2(hh)}:${pad2(mm)}`);
   }
-  out.push('23:00');
   return out;
 }
 
@@ -49,13 +70,50 @@ export default function HallPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [time, setTime] = useState('19:00');
-  const [guests, setGuests] = useState(2);
   const [availabilityById, setAvailabilityById] = useState<Record<string, boolean> | null>(null);
   const [selected, setSelected] = useState<TableShape | null>(null);
   const [comment, setComment] = useState('');
   const [msg, setMsg] = useState('');
   const [payId, setPayId] = useState<string | null>(null);
   const [loadingAvail, setLoadingAvail] = useState(false);
+  const [bookingDefs, setBookingDefs] = useState<BookingDefaults | null>(null);
+  const [guestsStr, setGuestsStr] = useState('2');
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const { data } = await api.get<BookingDefaults>('/booking-defaults');
+        setBookingDefs({
+          default_slot_duration_hours: data.default_slot_duration_hours ?? FALLBACK_DEFAULTS.default_slot_duration_hours,
+          booking_open_hour: data.booking_open_hour ?? FALLBACK_DEFAULTS.booking_open_hour,
+          booking_close_hour: data.booking_close_hour ?? FALLBACK_DEFAULTS.booking_close_hour,
+          slot_minutes: data.slot_minutes ?? FALLBACK_DEFAULTS.slot_minutes,
+        });
+      } catch {
+        setBookingDefs(FALLBACK_DEFAULTS);
+      }
+    })();
+  }, []);
+
+  const defs = bookingDefs ?? FALLBACK_DEFAULTS;
+  const slotHours = defs.default_slot_duration_hours;
+  const timeSlots = useMemo(
+    () => buildTimeSlots(defs.booking_open_hour, defs.booking_close_hour, defs.slot_minutes),
+    [defs.booking_open_hour, defs.booking_close_hour, defs.slot_minutes]
+  );
+
+  const guests = useMemo(() => {
+    const t = guestsStr.trim();
+    if (t === '') return 1;
+    const n = parseInt(t, 10);
+    if (!Number.isFinite(n)) return 1;
+    return Math.min(20, Math.max(1, n));
+  }, [guestsStr]);
+
+  useEffect(() => {
+    if (timeSlots.length === 0) return;
+    if (!timeSlots.includes(time)) setTime(timeSlots[0]);
+  }, [timeSlots, time]);
 
   useEffect(() => {
     void (async () => {
@@ -121,7 +179,7 @@ export default function HallPage() {
     setMsg('');
     try {
       const start = buildStartISO(date, time);
-      const end = addHours(new Date(start), SLOT_HOURS).toISOString();
+      const end = addHours(new Date(start), slotHours).toISOString();
       const { data } = await api.get<{ tables: { id: string; available_for_slot: boolean }[] | null }>(
         `/halls/${hallId}/availability?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&guests=${guests}`
       );
@@ -333,7 +391,7 @@ export default function HallPage() {
             <div>
               <label>Время начала</label>
               <select value={time} onChange={(e) => setTime(e.target.value)}>
-                {slots().map((s) => (
+                {timeSlots.map((s) => (
                   <option key={s} value={s}>
                     {s}
                   </option>
@@ -343,13 +401,23 @@ export default function HallPage() {
           </div>
           <label>Гости</label>
           <input
-            type="number"
-            min={1}
-            max={20}
-            value={guests}
-            onChange={(e) => setGuests(Number(e.target.value))}
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            value={guestsStr}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === '' || /^\d{0,2}$/.test(v)) setGuestsStr(v);
+            }}
+            onBlur={() => {
+              const n = parseInt(guestsStr, 10);
+              if (!Number.isFinite(n) || n < 1) setGuestsStr('1');
+              else setGuestsStr(String(Math.min(20, n)));
+            }}
           />
-          <p className="hint">Длительность визита в демо: {SLOT_HOURS} ч. Показываются столы с достаточной вместимостью.</p>
+          <p className="hint">
+            Длительность визита: {slotHours} ч. Показываются столы с достаточной вместимостью.
+          </p>
           <button type="button" className="btn" disabled={loadingAvail} onClick={() => void loadAvailability()}>
             {loadingAvail ? 'Загрузка…' : 'Показать свободные столы'}
           </button>
@@ -407,7 +475,7 @@ export default function HallPage() {
             <div className="card confirm-card">
               <h3>Стол №{selected.number}</h3>
               <p>
-                До <strong>{selected.capacity}</strong> гостей · слот {SLOT_HOURS} ч
+                До <strong>{selected.capacity}</strong> гостей · слот {slotHours} ч
               </p>
               <label>Комментарий для ресторана</label>
               <textarea rows={3} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Особые пожелания" />
@@ -438,6 +506,12 @@ function HallEditorPanel({ hallId }: { hallId: string }) {
   const [selected, setSelected] = useState<TableShape | null>(null);
   const [msg, setMsg] = useState('');
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [tblNumStr, setTblNumStr] = useState('1');
+  const [tblCapStr, setTblCapStr] = useState('4');
+  const [tblShape, setTblShape] = useState('rect');
+  const [tblWStr, setTblWStr] = useState('88');
+  const [tblHStr, setTblHStr] = useState('64');
+  const [tblRotStr, setTblRotStr] = useState('0');
 
   const deleteTable = async () => {
     if (!selected) return;
@@ -464,6 +538,57 @@ function HallEditorPanel({ hallId }: { hallId: string }) {
     }
   };
 
+  useEffect(() => {
+    if (!selected) return;
+    const w = selected.width && selected.width > 0 ? selected.width : (selected.radius ?? 28) * 2;
+    const h = selected.height && selected.height > 0 ? selected.height : (selected.radius ?? 28) * 2;
+    setTblNumStr(String(selected.number));
+    setTblCapStr(String(selected.capacity));
+    setTblShape((selected.shape || 'rect').toLowerCase());
+    setTblWStr(String(Math.round(w)));
+    setTblHStr(String(Math.round(h)));
+    setTblRotStr(String(Math.round(selected.rotation_deg ?? 0)));
+  }, [selected]);
+
+  const applyTableGeometry = async () => {
+    if (!selected) return;
+    setMsg('');
+    const num = parseInt(tblNumStr, 10);
+    const cap = parseInt(tblCapStr, 10);
+    const tw = parseInt(tblWStr, 10);
+    const th = parseInt(tblHStr, 10);
+    const rot = parseFloat(tblRotStr.replace(',', '.'));
+    if (!Number.isFinite(num) || num < 1) {
+      setMsg('Некорректный номер стола');
+      return;
+    }
+    if (!Number.isFinite(cap) || cap < 1 || cap > 32) {
+      setMsg('Некорректная вместимость');
+      return;
+    }
+    if (!Number.isFinite(tw) || tw < 24 || !Number.isFinite(th) || th < 24) {
+      setMsg('Некорректные размеры');
+      return;
+    }
+    if (!Number.isFinite(rot) || rot < -180 || rot > 180) {
+      setMsg('Некорректный поворот');
+      return;
+    }
+    try {
+      await api.put(`/halls/${hallId}/tables/${selected.id}`, {
+        table_number: num,
+        capacity: cap,
+        shape: tblShape,
+        width: tw,
+        height: th,
+        rotation_deg: rot,
+      });
+      setReloadNonce((n) => n + 1);
+    } catch {
+      setMsg('Не удалось сохранить параметры стола');
+    }
+  };
+
   return (
     <>
       <div className="card">
@@ -478,10 +603,109 @@ function HallEditorPanel({ hallId }: { hallId: string }) {
       {selected && user && (
         <div className="card">
           <h3>Стол №{selected.number}</h3>
-          <p>Вместимость: {selected.capacity}</p>
           <p>
             Статус: <strong>{selected.status}</strong>
           </p>
+          <div className="hall-editor-table-form">
+            <label>
+              Номер стола
+              <input
+                type="text"
+                inputMode="numeric"
+                value={tblNumStr}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '' || /^\d{1,3}$/.test(v)) setTblNumStr(v);
+                }}
+                onBlur={() => {
+                  const n = parseInt(tblNumStr, 10);
+                  if (!Number.isFinite(n) || n < 1) setTblNumStr('1');
+                  else setTblNumStr(String(n));
+                }}
+              />
+            </label>
+            <label>
+              Вместимость
+              <input
+                type="text"
+                inputMode="numeric"
+                value={tblCapStr}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '' || /^\d{1,2}$/.test(v)) setTblCapStr(v);
+                }}
+                onBlur={() => {
+                  const n = parseInt(tblCapStr, 10);
+                  if (!Number.isFinite(n) || n < 1) setTblCapStr('1');
+                  else setTblCapStr(String(Math.min(32, n)));
+                }}
+              />
+            </label>
+            <label>
+              Форма
+              <select value={tblShape} onChange={(e) => setTblShape(e.target.value)}>
+                <option value="round">Круг</option>
+                <option value="rect">Прямоугольник</option>
+                <option value="ellipse">Эллипс</option>
+              </select>
+            </label>
+            <label>
+              Ширина, px
+              <input
+                type="text"
+                inputMode="numeric"
+                value={tblWStr}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '' || /^\d{1,3}$/.test(v)) setTblWStr(v);
+                }}
+                onBlur={() => {
+                  const n = parseInt(tblWStr, 10);
+                  if (!Number.isFinite(n) || n < 24) setTblWStr('24');
+                  else setTblWStr(String(Math.min(400, n)));
+                }}
+              />
+            </label>
+            <label>
+              Высота, px
+              <input
+                type="text"
+                inputMode="numeric"
+                value={tblHStr}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '' || /^\d{1,3}$/.test(v)) setTblHStr(v);
+                }}
+                onBlur={() => {
+                  const n = parseInt(tblHStr, 10);
+                  if (!Number.isFinite(n) || n < 24) setTblHStr('24');
+                  else setTblHStr(String(Math.min(400, n)));
+                }}
+              />
+            </label>
+            <label>
+              Поворот, °
+              <input
+                type="text"
+                inputMode="decimal"
+                value={tblRotStr}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '' || v === '-' || /^-?\d{0,3}$/.test(v)) setTblRotStr(v);
+                }}
+                onBlur={() => {
+                  const n = parseFloat(tblRotStr.replace(',', '.'));
+                  if (!Number.isFinite(n)) setTblRotStr('0');
+                  else setTblRotStr(String(Math.max(-180, Math.min(180, Math.round(n)))));
+                }}
+              />
+            </label>
+          </div>
+          <div className="btn-row" style={{ marginTop: 12 }}>
+            <button type="button" className="btn btn-sm" onClick={() => void applyTableGeometry()}>
+              Применить форму и размер
+            </button>
+          </div>
           <div className="btn-row">
             <button type="button" className={selected.status === 'blocked' ? 'btn' : 'secondary'} onClick={() => void toggleBlock()}>
               {selected.status === 'blocked' ? 'Снять блокировку' : 'Заблокировать стол'}
@@ -491,7 +715,7 @@ function HallEditorPanel({ hallId }: { hallId: string }) {
             </button>
           </div>
           {msg && <p className="form-msg">{msg}</p>}
-          <p className="hint">Заблокированные столы не доступны для онлайн-брони.</p>
+          <p className="hint">Заблокированные столы не доступны для онлайн-брони. После изменения геометрии нажмите «Сохранить схему» на полотне при необходимости.</p>
         </div>
       )}
     </>

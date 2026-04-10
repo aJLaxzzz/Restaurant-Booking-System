@@ -9,9 +9,11 @@ type RestaurantDetail = {
   city: string;
   description: string;
   photo_url: string;
+  address?: string;
   phone?: string;
   opens_at?: string;
   closes_at?: string;
+  extra_json?: Record<string, unknown>;
 };
 
 type MenuCategory = {
@@ -140,6 +142,9 @@ export default function RestaurantPage() {
           <p className="restaurant-city">{venue?.city}</p>
           <h1>{venue?.name}</h1>
           {venue?.description ? <p className="restaurant-public-lead">{venue.description}</p> : null}
+          {venue?.address ? (
+            <p className="muted restaurant-public-meta restaurant-public-address">{venue.address}</p>
+          ) : null}
           {(venue?.phone || venue?.opens_at || venue?.closes_at) && (
             <p className="muted restaurant-public-meta">
               {venue.phone && <span>{venue.phone}</span>}
@@ -151,12 +156,17 @@ export default function RestaurantPage() {
               )}
             </p>
           )}
+          {typeof venue?.extra_json?.contact_email === 'string' && venue.extra_json.contact_email.trim() !== '' && (
+            <p className="muted restaurant-public-meta">
+              Email:{' '}
+              <a href={`mailto:${String(venue.extra_json.contact_email).trim()}`}>
+                {String(venue.extra_json.contact_email).trim()}
+              </a>
+            </p>
+          )}
           <div className="btn-row">
             <Link to={`/hall?restaurant_id=${venue?.id}`} className="btn">
               Забронировать стол
-            </Link>
-            <Link to="/hall" className="btn secondary">
-              Все залы
             </Link>
           </div>
         </div>

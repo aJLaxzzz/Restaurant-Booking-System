@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { api } from '../api';
 
@@ -10,12 +10,36 @@ type Restaurant = {
   city: string;
   description: string;
   photo_url: string;
+  address?: string;
+  phone?: string;
+  opens_at?: string;
+  closes_at?: string;
 };
+
+function scrollToVenues() {
+  document.getElementById('home-venues')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 export default function Home() {
   const { user } = useAuth();
+  const location = useLocation();
   const [venues, setVenues] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [cityFilter, setCityFilter] = useState<string>('');
+
+  const cities = useMemo(() => {
+    const s = new Set<string>();
+    for (const v of venues) {
+      const c = (v.city || '').trim();
+      if (c) s.add(c);
+    }
+    return [...s].sort((a, b) => a.localeCompare(b, 'ru'));
+  }, [venues]);
+
+  const filteredVenues = useMemo(() => {
+    if (!cityFilter) return venues;
+    return venues.filter((v) => (v.city || '').trim() === cityFilter);
+  }, [venues, cityFilter]);
 
   useEffect(() => {
     void (async () => {
@@ -31,8 +55,14 @@ export default function Home() {
     })();
   }, []);
 
+  useLayoutEffect(() => {
+    if (location.hash === '#home-venues') {
+      requestAnimationFrame(() => scrollToVenues());
+    }
+  }, [location.hash, location.pathname]);
+
   const countClass =
-    venues.length <= 1 ? ' home-venue-grid--sparse' : '';
+    filteredVenues.length <= 1 ? ' home-venue-grid--sparse' : '';
 
   return (
     <div className="home-landing">
@@ -45,14 +75,14 @@ export default function Home() {
               Столик в ресторане — <span className="home-hero-accent">без звонков и ожидания</span>
             </h1>
             <p className="home-hero-lead">
-              Выберите заведение, зону и время на интерактивной схеме зала. Оплатите депозит и приходите в назначенный час —
-              всё в одном приложении.
+              Начните с главной: выберите ресторан в списке ниже, откройте карточку — там меню и кнопка брони. Зона и стол — на
+              интерактивной схеме зала.
             </p>
             <div className="home-hero-actions">
               {user?.role === 'client' || user?.role === 'owner' ? (
-                <Link to="/hall" className="btn home-hero-cta">
+                <button type="button" className="btn home-hero-cta" onClick={() => scrollToVenues()}>
                   Забронировать стол
-                </Link>
+                </button>
               ) : (
                 <Link to="/login" className="btn home-hero-cta">
                   Войти для брони
@@ -148,7 +178,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="home-block home-venues" aria-labelledby="venues-title">
+      <section id="home-venues" className="home-block home-venues" aria-labelledby="venues-title">
         <header className="home-block-head">
           <div>
             <h2 id="venues-title" className="home-block-title">
@@ -158,10 +188,32 @@ export default function Home() {
           </div>
           {!loading && venues.length > 0 && (
             <span className="home-venues-count">
-              {venues.length} {venues.length === 1 ? 'место' : venues.length < 5 ? 'места' : 'мест'}
+              {filteredVenues.length} {filteredVenues.length === 1 ? 'место' : filteredVenues.length < 5 ? 'места' : 'мест'}
             </span>
           )}
         </header>
+
+        {!loading && cities.length > 1 && (
+          <div className="home-city-filter" role="group" aria-label="Фильтр по городу">
+            <button
+              type="button"
+              className={!cityFilter ? 'home-city-chip home-city-chip--active' : 'home-city-chip'}
+              onClick={() => setCityFilter('')}
+            >
+              Все города
+            </button>
+            {cities.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={cityFilter === c ? 'home-city-chip home-city-chip--active' : 'home-city-chip'}
+                onClick={() => setCityFilter(c)}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        )}
 
         {loading ? (
           <div className="home-venue-grid home-venue-grid--skeleton">
@@ -180,9 +232,13 @@ export default function Home() {
           <div className="home-empty">
             <p>Пока нет доступных ресторанов. Загляните позже или обновите страницу.</p>
           </div>
+        ) : filteredVenues.length === 0 ? (
+          <div className="home-empty">
+            <p>Нет заведений в выбранном городе.</p>
+          </div>
         ) : (
           <div className={`home-venue-grid${countClass}`}>
-            {venues.map((r) => (
+            {filteredVenues.map((r) => (
               <Link key={r.id} to={`/restaurant/${r.id}`} className="home-venue-card">
                 <div className="home-venue-card-media">
                   <div
@@ -203,6 +259,24 @@ export default function Home() {
                 </div>
                 <div className="home-venue-card-body">
                   <h3 className="home-venue-name">{r.name}</h3>
+                  {r.address ? (
+                    <p className="home-venue-line muted compact">{r.address}</p>
+                  ) : null}
+                  {(r.opens_at && r.closes_at) || r.phone ? (
+                    <p className="home-venue-line muted compact">
+                      {r.opens_at && r.closes_at ? (
+                        <span>
+                          {r.opens_at}—{r.closes_at}
+                        </span>
+                      ) : null}
+                      {r.phone ? (
+                        <span>
+                          {r.opens_at && r.closes_at ? ' · ' : ''}
+                          {r.phone}
+                        </span>
+                      ) : null}
+                    </p>
+                  ) : null}
                   <p className="home-venue-desc">{r.description || 'Бронирование и меню онлайн'}</p>
                   <span className="home-venue-cta">
                     Меню и бронь <span className="home-venue-cta-arrow">→</span>
@@ -233,6 +307,11 @@ export default function Home() {
             <div className="home-perk-icon">✧</div>
             <h3>Меню до визита</h3>
             <p>Оцените блюда заранее: категории, описания и цены в карточке ресторана.</p>
+          </article>
+          <article className="home-perk">
+            <div className="home-perk-icon">⏱</div>
+            <h3>История и напоминания</h3>
+            <p>Активные брони и прошлые визиты — в профиле. Меньше хаоса в переписке и звонках.</p>
           </article>
         </div>
       </section>

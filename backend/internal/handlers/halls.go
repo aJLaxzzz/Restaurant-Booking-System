@@ -93,6 +93,8 @@ type layoutJSON struct {
 	Tables        []layoutTable          `json:"tables"`
 	Walls         []map[string]float64   `json:"walls"`
 	Decorations   []map[string]any       `json:"decorations"`
+	CanvasWidth   float64                `json:"canvas_width"`
+	CanvasHeight  float64                `json:"canvas_height"`
 }
 
 func (a *Handlers) handleLayoutGet(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +180,17 @@ func (a *Handlers) handleLayoutGet(w http.ResponseWriter, r *http.Request) {
 	if walls == nil {
 		walls = []map[string]float64{}
 	}
-	a.json(w, http.StatusOK, map[string]any{"tables": tables, "walls": walls, "decorations": lj.Decorations})
+	cw, ch := 920.0, 640.0
+	if lj.CanvasWidth > 0 {
+		cw = lj.CanvasWidth
+	}
+	if lj.CanvasHeight > 0 {
+		ch = lj.CanvasHeight
+	}
+	a.json(w, http.StatusOK, map[string]any{
+		"tables": tables, "walls": walls, "decorations": lj.Decorations,
+		"canvas_width": cw, "canvas_height": ch,
+	})
 }
 
 // handleHallAvailability — столы, подходящие по вместимости и без пересечения по времени.
@@ -252,7 +264,14 @@ func (a *Handlers) handleLayoutPut(w http.ResponseWriter, r *http.Request) {
 	if body.Decorations == nil {
 		body.Decorations = []map[string]any{}
 	}
-	b, _ := json.Marshal(map[string]any{"tables": body.Tables, "walls": body.Walls, "decorations": body.Decorations})
+	layoutObj := map[string]any{"tables": body.Tables, "walls": body.Walls, "decorations": body.Decorations}
+	if body.CanvasWidth > 0 {
+		layoutObj["canvas_width"] = body.CanvasWidth
+	}
+	if body.CanvasHeight > 0 {
+		layoutObj["canvas_height"] = body.CanvasHeight
+	}
+	b, _ := json.Marshal(layoutObj)
 	tx, err := a.Pool.Begin(r.Context())
 	if err != nil {
 		a.err(w, http.StatusInternalServerError, "tx")

@@ -15,7 +15,7 @@ func (a *Handlers) Seed(ctx context.Context) {
 	if hallCount == 0 {
 		a.seedBase(ctx)
 	}
-	// Всегда: дозаполнение по slug (trattoria / la-luna / sakura). Нужно после частичного seedBase
+	// Всегда: дозаполнение по slug (trattoria / la-luna / sakura / bella-vista). Нужно после частичного seedBase
 	// (один ресторан, остальные INSERT с тем же slug упали) — иначе ветка hallCount==0 никогда
 	// не вызывала ensureExtra, и на главной оставался один ресторан.
 	a.ensureExtraDemoRestaurants(ctx)
@@ -24,6 +24,8 @@ func (a *Handlers) Seed(ctx context.Context) {
 	if resCount == 0 {
 		a.seedLifeData(ctx)
 	}
+	a.ensureRestaurantTodayTomorrowDemoBookings(ctx, "trattoria-tverskaya", demoTrattoriaNearMarker, "waiter@demo.ru", "waiter2@demo.ru")
+	a.ensureRestaurantTodayTomorrowDemoBookings(ctx, "bella-vista", demoBellaNearMarker, "waiter5@demo.ru", "")
 }
 
 func (a *Handlers) seedBase(ctx context.Context) {
@@ -42,46 +44,56 @@ func (a *Handlers) seedBase(ctx context.Context) {
 		ON CONFLICT (email) DO UPDATE SET email=EXCLUDED.email
 		RETURNING id`, hashStr).Scan(&owner2ID)
 
-	var owner3ID uuid.UUID
+	var owner3ID, owner4ID uuid.UUID
 	_ = a.Pool.QueryRow(ctx, `
 		INSERT INTO users (email, password_hash, full_name, phone, role, email_verified)
 		VALUES ('owner3@demo.ru',$1,'Денис Океан','+79001234569','owner',true)
 		ON CONFLICT (email) DO UPDATE SET email=EXCLUDED.email
 		RETURNING id`, hashStr).Scan(&owner3ID)
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash, full_name, phone, role, email_verified)
+		VALUES ('owner-bella@demo.ru',$1,'Рикардо Беллини','+79001234570','owner',true)
+		ON CONFLICT (email) DO UPDATE SET email=EXCLUDED.email
+		RETURNING id`, hashStr).Scan(&owner4ID)
 
 	rid := uuid.New()
 	rid2 := uuid.New()
 	rid3 := uuid.New()
-	const photoTrattoria = "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1200&q=80"
-	const photoLuna = "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=1200&q=80"
-	const photoSakura = "https://images.unsplash.com/photo-1579584425555-c7ce17fd4351?w=1200&q=80"
+	rid4 := uuid.New()
 	_, _ = a.Pool.Exec(ctx, `
-		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url)
-		VALUES ($1,'Траттория Тверская','Москва, ул. Тверская, 12','trattoria-tverskaya','Москва','Итальянская кухня и вино',$2,$3)`, rid, owner1ID, photoTrattoria)
+		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
+		VALUES ($1,'Траттория Тверская','Москва, ул. Тверская, 12','trattoria-tverskaya','Москва','Итальянская кухня и вино',$2,$3,'+7 (495) 111-20-01','10:00','23:00','{"contact_email":"hello@trattoria-demo.rest"}'::jsonb)`, rid, owner1ID, demoPhotoTrattoria)
 	_, _ = a.Pool.Exec(ctx, `
-		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url)
-		VALUES ($1,'La Luna','Санкт-Петербург, наб. реки Фонтанки, 20','la-luna','Санкт-Петербург','Европейская кухня',$2,$3)`, rid2, owner2ID, photoLuna)
+		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
+		VALUES ($1,'La Luna','Москва, наб. Патриарших прудов, 10','la-luna','Москва','Европейская кухня',$2,$3,'+7 (495) 222-30-02','11:00','23:30','{"contact_email":"kontakt@laluna-demo.rest"}'::jsonb)`, rid2, owner2ID, demoPhotoLaLuna)
 	_, _ = a.Pool.Exec(ctx, `
-		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url)
-		VALUES ($1,'Сакура Лайт','Москва, ул. Покровка, 3','sakura-lite','Москва','Японская кухня',$2,$3)`, rid3, owner3ID, photoSakura)
+		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
+		VALUES ($1,'Сакура Лайт','Москва, ул. Покровка, 3','sakura-lite','Москва','Японская кухня',$2,$3,'+7 (495) 333-40-03','12:00','23:00','{"contact_email":"info@sakura-demo.rest"}'::jsonb)`, rid3, owner3ID, demoPhotoSakura)
+	_, _ = a.Pool.Exec(ctx, `
+		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
+		VALUES ($1,'Bella Vista','Москва, Смоленская пл., 6','bella-vista','Москва','Итальянская кухня в центре Москвы',$2,$3,'+7 (495) 444-50-04','10:00','00:00','{"contact_email":"ciao@bellavista-demo.rest"}'::jsonb)`, rid4, owner4ID, demoPhotoBella)
 
 	hidMain := uuid.New()
 	hidTerrace := uuid.New()
 	hidLuna := uuid.New()
 	hidSakura := uuid.New()
+	hidBella := uuid.New()
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Основной зал')`, hidMain, rid)
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Летняя терраса')`, hidTerrace, rid)
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Главный зал')`, hidLuna, rid2)
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Зал татами')`, hidSakura, rid3)
+	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Зал Bella Vista')`, hidBella, rid4)
 
 	wallsMain := `{"walls":[{"x1":0,"y1":0,"x2":920,"y2":0},{"x1":920,"y1":0,"x2":920,"y2":640},{"x1":920,"y1":640,"x2":0,"y2":640},{"x1":0,"y1":640,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Панорамные окна","x":60,"y":40,"w":200,"h":32},{"type":"window_band","x":0,"y":0,"w":920,"h":24}]}`
 	wallsTerr := `{"walls":[{"x1":0,"y1":0,"x2":720,"y2":0},{"x1":720,"y1":0,"x2":720,"y2":480},{"x1":720,"y1":480,"x2":0,"y2":480},{"x1":0,"y1":480,"x2":0,"y2":0}],"decorations":[]}`
 	wallsLuna := `{"walls":[{"x1":0,"y1":0,"x2":800,"y2":0},{"x1":800,"y1":0,"x2":800,"y2":560},{"x1":800,"y1":560,"x2":0,"y2":560},{"x1":0,"y1":560,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Центр зала","x":360,"y":260,"w":120,"h":28}]}`
 	wallsSakura := `{"walls":[{"x1":0,"y1":0,"x2":680,"y2":0},{"x1":680,"y1":0,"x2":680,"y2":520},{"x1":680,"y1":520,"x2":0,"y2":520},{"x1":0,"y1":520,"x2":0,"y2":0}],"decorations":[]}`
+	wallsBella := `{"walls":[{"x1":0,"y1":0,"x2":880,"y2":0},{"x1":880,"y1":0,"x2":880,"y2":600},{"x1":880,"y1":600,"x2":0,"y2":600},{"x1":0,"y1":600,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Панорама","x":40,"y":36,"w":160,"h":28}]}`
 	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidMain, wallsMain)
 	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidTerrace, wallsTerr)
 	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidLuna, wallsLuna)
 	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidSakura, wallsSakura)
+	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidBella, wallsBella)
 
 	mainTables := []struct {
 		num        int
@@ -157,21 +169,41 @@ func (a *Handlers) seedBase(ctx context.Context) {
 			INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape, status, width, height)
 			VALUES ($1,$2,$3,$4,$5,'rect','available',88,72)`, hidSakura, t.n, t.cap, t.x, t.y)
 	}
+
+	bellaTables := []struct {
+		n   int
+		cap int
+		x, y float64
+	}{
+		{1, 2, 120, 110}, {2, 4, 300, 130}, {3, 4, 500, 150},
+		{4, 6, 220, 320}, {5, 4, 460, 340},
+	}
+	for _, t := range bellaTables {
+		_, _ = a.Pool.Exec(ctx, `
+			INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape, status, width, height)
+			VALUES ($1,$2,$3,$4,$5,'rect','available',88,72)`, hidBella, t.n, t.cap, t.x, t.y)
+	}
 	staff := []struct {
 		email, name, role, phone string
 		rid                      uuid.UUID
 	}{
 		{"admin@demo.ru", "Елена Орлова", "admin", "+79001234567", rid},
+		{"admin-bella@demo.ru", "Виктория Беллини", "admin", "+79001234574", rid4},
 		{"waiter@demo.ru", "Дмитрий Козлов", "waiter", "+79001234567", rid},
 		{"waiter2@demo.ru", "Светлана Морозова", "waiter", "+79001234567", rid},
 		{"waiter3@demo.ru", "Павел Невский", "waiter", "+79001234571", rid2},
 		{"waiter4@demo.ru", "Юлия Сакура", "waiter", "+79001234572", rid3},
+		{"waiter5@demo.ru", "Марко Виста", "waiter", "+79001234573", rid4},
 	}
 	for _, u := range staff {
 		_, err := a.Pool.Exec(ctx, `
 			INSERT INTO users (email, password_hash, full_name, phone, role, email_verified, restaurant_id)
 			VALUES ($1,$2,$3,$4,$5,true,$6)
-			ON CONFLICT (email) DO UPDATE SET restaurant_id = EXCLUDED.restaurant_id, phone = EXCLUDED.phone`,
+			ON CONFLICT (email) DO UPDATE SET
+				restaurant_id = EXCLUDED.restaurant_id,
+				phone = EXCLUDED.phone,
+				role = CASE WHEN users.role = 'owner' THEN users.role ELSE EXCLUDED.role END,
+				full_name = CASE WHEN users.role = 'owner' THEN users.full_name ELSE EXCLUDED.full_name END`,
 			u.email, hashStr, u.name, u.phone, u.role, u.rid)
 		if err != nil {
 			log.Printf("seed staff %s: %v", u.email, err)
@@ -181,6 +213,7 @@ func (a *Handlers) seedBase(ctx context.Context) {
 	a.seedMenuTrattoria(ctx, rid)
 	a.seedMenuLaLuna(ctx, rid2)
 	a.seedMenuSakura(ctx, rid3)
+	a.seedMenuBellaVista(ctx, rid4)
 
 	clients := []struct {
 		email, name, phone string
@@ -227,7 +260,7 @@ func (a *Handlers) seedBase(ctx context.Context) {
 		}
 	}
 
-	log.Println("БД: 3 демо-ресторана, залы, столы, меню, staff + клиенты (пароль Password1)")
+	log.Println("БД: 4 демо-ресторана, залы, столы, меню, staff + клиенты (пароль Password1)")
 }
 
 func (a *Handlers) seedMenuTrattoria(ctx context.Context, restaurantID uuid.UUID) {
@@ -251,10 +284,10 @@ func (a *Handlers) seedMenuTrattoria(ctx context.Context, restaurantID uuid.UUID
 		{catDrink, "Домашний лимонад", 29000},
 		{catDrink, "Эспрессо", 18000},
 	}
-	for _, it := range items {
+	for i, it := range items {
 		_, _ = a.Pool.Exec(ctx, `
-			INSERT INTO menu_items (restaurant_id, category_id, name, price_kopecks, sort_order)
-			VALUES ($1,$2,$3,$4,0)`, restaurantID, it.cat, it.n, it.pr)
+			INSERT INTO menu_items (restaurant_id, category_id, name, price_kopecks, sort_order, image_url)
+			VALUES ($1,$2,$3,$4,0,$5)`, restaurantID, it.cat, it.n, it.pr, demoDishImageAt(i))
 	}
 }
 
@@ -275,10 +308,10 @@ func (a *Handlers) seedMenuLaLuna(ctx context.Context, restaurantID uuid.UUID) {
 		{catBar, "Капучино", 22000},
 		{catBar, "Домашний лимонад", 31000},
 	}
-	for _, it := range items {
+	for i, it := range items {
 		_, _ = a.Pool.Exec(ctx, `
-			INSERT INTO menu_items (restaurant_id, category_id, name, price_kopecks, sort_order)
-			VALUES ($1,$2,$3,$4,0)`, restaurantID, it.cat, it.n, it.pr)
+			INSERT INTO menu_items (restaurant_id, category_id, name, price_kopecks, sort_order, image_url)
+			VALUES ($1,$2,$3,$4,0,$5)`, restaurantID, it.cat, it.n, it.pr, demoDishImageAt(i+3))
 	}
 }
 
@@ -299,10 +332,49 @@ func (a *Handlers) seedMenuSakura(ctx context.Context, restaurantID uuid.UUID) {
 		{catHot, "Тяхан с морепродуктами", 55000},
 		{catHot, "Мисо-суп", 29000},
 	}
-	for _, it := range items {
+	for i, it := range items {
 		_, _ = a.Pool.Exec(ctx, `
-			INSERT INTO menu_items (restaurant_id, category_id, name, price_kopecks, sort_order)
-			VALUES ($1,$2,$3,$4,0)`, restaurantID, it.cat, it.n, it.pr)
+			INSERT INTO menu_items (restaurant_id, category_id, name, price_kopecks, sort_order, image_url)
+			VALUES ($1,$2,$3,$4,0,$5)`, restaurantID, it.cat, it.n, it.pr, demoDishImageAt(i+8))
+	}
+}
+
+func (a *Handlers) seedMenuBellaVista(ctx context.Context, restaurantID uuid.UUID) {
+	var catAntipasti, catPasta, catSecondi, catDolci, catBevande uuid.UUID
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO menu_categories (restaurant_id, name, sort_order) VALUES ($1,'Закуски',0) RETURNING id`, restaurantID).Scan(&catAntipasti)
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO menu_categories (restaurant_id, name, sort_order) VALUES ($1,'Паста и ризотто',1) RETURNING id`, restaurantID).Scan(&catPasta)
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO menu_categories (restaurant_id, name, sort_order) VALUES ($1,'Основные блюда',2) RETURNING id`, restaurantID).Scan(&catSecondi)
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO menu_categories (restaurant_id, name, sort_order) VALUES ($1,'Десерты',3) RETURNING id`, restaurantID).Scan(&catDolci)
+	_ = a.Pool.QueryRow(ctx, `
+		INSERT INTO menu_categories (restaurant_id, name, sort_order) VALUES ($1,'Напитки',4) RETURNING id`, restaurantID).Scan(&catBevande)
+	items := []struct {
+		cat uuid.UUID
+		n   string
+		d   string
+		pr  int
+	}{
+		{catAntipasti, "Брускетта с томатами и базиликом", "Свежий хлеб, чеснок, оливковое масло", 42000},
+		{catAntipasti, "Вителло тоннато", "Телятина, соус тоннато, каперсы", 69000},
+		{catAntipasti, "Капрезе", "Моцарелла буффала, томаты", 55000},
+		{catPasta, "Спагетти карбонара", "Гуанчиале, яйцо, пекорино", 72000},
+		{catPasta, "Тальятелле с белыми грибами", "Сливки, пармезан", 78000},
+		{catPasta, "Ризотто с шафраном и морепродуктами", "", 89000},
+		{catSecondi, "Оссобуко по-милански", "Тушёная голень, гремолата", 125000},
+		{catSecondi, "Рыба дня на гриле", "Сезонные овощи", 98000},
+		{catDolci, "Панна котта с ягодами", "", 39000},
+		{catDolci, "Тирамису", "Маскарпоне, кофе, какао", 45000},
+		{catBevande, "Эспрессо", "", 22000},
+		{catBevande, "Апероль-спритц", "", 49000},
+		{catBevande, "Минеральная вода 0,75 л", "", 35000},
+	}
+	for i, it := range items {
+		_, _ = a.Pool.Exec(ctx, `
+			INSERT INTO menu_items (restaurant_id, category_id, name, description, price_kopecks, sort_order, image_url)
+			VALUES ($1,$2,$3,$4,$5,0,$6)`, restaurantID, it.cat, it.n, it.d, it.pr, demoDishImageAt(i+12))
 	}
 }
 
@@ -667,6 +739,221 @@ func (a *Handlers) seedClosedOrdersForCompleted(ctx context.Context) {
 				VALUES ($1, $2, $3, 'succeeded', $4, 'tab', $5)`,
 				resID, oid, tabTotal, uuid.New(), "seed_tab_"+oid.String()[:12])
 		}
+	}
+}
+
+// Маркеры в comment: при каждом Seed пересоздаём эти брони (сегодня/завтра МСК).
+const demoTrattoriaNearMarker = "[demo-trattoria-near]"
+const demoBellaNearMarker = "[demo-bella-near]"
+
+// ensureRestaurantTodayTomorrowDemoBookings — много демо-броней на сегодня и завтра (Europe/Moscow) для ресторана по slug.
+// waiterEmail2 может быть пустым — тогда второй официант совпадает с первым (как у Bella Vista с одним официантом).
+func (a *Handlers) ensureRestaurantTodayTomorrowDemoBookings(ctx context.Context, slug, marker, waiterEmail1, waiterEmail2 string) {
+	var restID uuid.UUID
+	if err := a.Pool.QueryRow(ctx, `SELECT id FROM restaurants WHERE slug=$1 LIMIT 1`, slug).Scan(&restID); err != nil {
+		return
+	}
+	if waiterEmail2 == "" {
+		waiterEmail2 = waiterEmail1
+	}
+	var wid1, wid2 uuid.UUID
+	if err := a.Pool.QueryRow(ctx, `SELECT id FROM users WHERE lower(email)=lower($1) AND restaurant_id=$2`, waiterEmail1, restID).Scan(&wid1); err != nil {
+		log.Printf("ensureRestaurantTodayTomorrowDemoBookings %s: нет официанта %s: %v", slug, waiterEmail1, err)
+		return
+	}
+	if err := a.Pool.QueryRow(ctx, `SELECT id FROM users WHERE lower(email)=lower($1) AND restaurant_id=$2`, waiterEmail2, restID).Scan(&wid2); err != nil {
+		wid2 = wid1
+	}
+
+	tabRows, err := a.Pool.Query(ctx, `
+		SELECT t.id FROM tables t
+		JOIN halls h ON h.id = t.hall_id
+		WHERE h.restaurant_id = $1
+		ORDER BY t.table_number`, restID)
+	if err != nil {
+		return
+	}
+	var tableIDs []uuid.UUID
+	for tabRows.Next() {
+		var tid uuid.UUID
+		if err := tabRows.Scan(&tid); err != nil {
+			tabRows.Close()
+			return
+		}
+		tableIDs = append(tableIDs, tid)
+	}
+	tabRows.Close()
+	if len(tableIDs) == 0 {
+		return
+	}
+
+	clientRows, err := a.Pool.Query(ctx, `SELECT id FROM users WHERE role='client' ORDER BY email LIMIT 40`)
+	if err != nil {
+		return
+	}
+	var clientIDs []uuid.UUID
+	for clientRows.Next() {
+		var cid uuid.UUID
+		if err := clientRows.Scan(&cid); err != nil {
+			clientRows.Close()
+			return
+		}
+		clientIDs = append(clientIDs, cid)
+	}
+	clientRows.Close()
+	if len(clientIDs) == 0 {
+		return
+	}
+
+	loc, errLoc := time.LoadLocation("Europe/Moscow")
+	if errLoc != nil {
+		loc = time.UTC
+	}
+	now := time.Now().In(loc)
+	today0 := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	dayAfterTomorrow0 := today0.Add(48 * time.Hour)
+
+	_, _ = a.Pool.Exec(ctx, `
+		DELETE FROM reservations r
+		USING tables t, halls h
+		WHERE r.table_id = t.id AND t.hall_id = h.id
+		  AND h.restaurant_id = $1
+		  AND r.start_time >= $2 AND r.start_time < $3
+		  AND r.comment LIKE '%' || $4 || '%'`,
+		restID, today0.UTC(), dayAfterTomorrow0.UTC(), marker)
+
+	slot := 2 * time.Hour
+	type nb struct {
+		dayPlus int
+		hh, mm  int
+		status  string
+		ti, ci  int
+		w1      bool
+		pay     string
+		seated  *time.Time
+		svc     *time.Time
+	}
+	notes := []string{
+		"У окна", "Бизнес-ланч", "День рождения", "Детский стул",
+		"Без орехов", "Вегетарианское меню", "Юбилей", "Встреча",
+		"Командировка", "Тихий столик", "Корпоратив", "Свидание",
+	}
+	var books []nb
+	todayH := []struct{ hh, mm int }{
+		{11, 0}, {11, 30}, {12, 0}, {12, 30}, {13, 0}, {14, 0}, {15, 30},
+		{16, 30}, {17, 30}, {18, 30}, {19, 30}, {20, 0}, {20, 30},
+	}
+	for i, hm := range todayH {
+		st := "confirmed"
+		pay := "succeeded"
+		var seated, svc *time.Time
+		w1 := i%2 == 0
+		switch i {
+		case 2:
+			st = "seated"
+			s := today0.Add(time.Duration(hm.hh)*time.Hour + time.Duration(hm.mm)*time.Minute).UTC().Add(4 * time.Minute)
+			seated = &s
+		case 3:
+			st = "in_service"
+			s0 := today0.Add(time.Duration(hm.hh)*time.Hour + time.Duration(hm.mm)*time.Minute).UTC().Add(3 * time.Minute)
+			s1 := s0.Add(18 * time.Minute)
+			seated, svc = &s0, &s1
+		case 7:
+			st = "pending_payment"
+			pay = "pending"
+		}
+		books = append(books, nb{0, hm.hh, hm.mm, st, i, i, w1, pay, seated, svc})
+	}
+	tomorrowH := []struct{ hh, mm int }{
+		{10, 30}, {11, 30}, {12, 30}, {14, 0}, {15, 30}, {17, 0},
+		{18, 30}, {19, 0}, {20, 30}, {21, 0},
+	}
+	for i, hm := range tomorrowH {
+		st := "confirmed"
+		pay := "succeeded"
+		if i == 3 || i == 7 {
+			st = "pending_payment"
+			pay = "pending"
+		}
+		books = append(books, nb{1, hm.hh, hm.mm, st, i + len(todayH), i + len(todayH), i%2 == 0, pay, nil, nil})
+	}
+
+	inserted := 0
+	for _, b := range books {
+		day := today0
+		if b.dayPlus == 1 {
+			day = today0.Add(24 * time.Hour)
+		}
+		start := time.Date(day.Year(), day.Month(), day.Day(), b.hh, b.mm, 0, 0, loc).UTC()
+		end := start.Add(slot)
+		tid := tableIDs[b.ti%len(tableIDs)]
+		uid := clientIDs[b.ci%len(clientIDs)]
+		var w *uuid.UUID
+		if b.w1 {
+			w = &wid1
+		} else {
+			w = &wid2
+		}
+		comment := notes[b.ci%len(notes)] + " " + marker
+		var cap int
+		if err := a.Pool.QueryRow(ctx, `SELECT capacity FROM tables WHERE id=$1`, tid).Scan(&cap); err != nil {
+			continue
+		}
+		guests := 2 + (b.ci % 5)
+		if guests > cap {
+			guests = cap
+		}
+		if guests < 1 {
+			guests = 1
+		}
+		var rid uuid.UUID
+		err := a.Pool.QueryRow(ctx, `
+			INSERT INTO reservations (
+				table_id, user_id, start_time, end_time, guest_count, status, comment, created_by,
+				assigned_waiter_id, seated_at, service_started_at, completed_at
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,'client',$8,$9,$10,NULL)
+			RETURNING id`,
+			tid, uid, start, end, guests, b.status, comment, w, b.seated, b.svc,
+		).Scan(&rid)
+		if err != nil {
+			log.Printf("ensureRestaurantTodayTomorrowDemoBookings %s: insert: %v", slug, err)
+			continue
+		}
+		inserted++
+
+		switch b.pay {
+		case "succeeded":
+			amount := 50000 + guests*12000 + (inserted%13)*1000
+			_, _ = a.Pool.Exec(ctx, `
+				INSERT INTO payments (reservation_id, amount_kopecks, status, idempotency_key, gateway_payment_id)
+				VALUES ($1,$2,'succeeded',$3,$4)`,
+				rid, amount, uuid.New(), "demo_near_"+rid.String()[:10])
+		case "pending":
+			_, _ = a.Pool.Exec(ctx, `
+				INSERT INTO payments (reservation_id, amount_kopecks, status, idempotency_key)
+				VALUES ($1,$2,'pending',$3)`,
+				rid, 95000, uuid.New())
+		}
+
+		if w != nil && (b.status == "confirmed" || b.status == "seated" || b.status == "in_service" || b.status == "pending_payment") {
+			_, _ = a.Pool.Exec(ctx, `
+				INSERT INTO table_assignments (reservation_id, staff_user_id, table_id)
+				VALUES ($1,$2,$3)`,
+				rid, *w, tid)
+		}
+	}
+
+	_, _ = a.Pool.Exec(ctx, `
+		UPDATE tables t SET status='occupied', updated_at=NOW()
+		WHERE EXISTS (
+			SELECT 1 FROM reservations r
+			WHERE r.table_id = t.id
+			AND r.status IN ('seated','in_service')
+			AND r.start_time <= NOW() AND r.end_time >= NOW()
+		)`)
+
+	if inserted > 0 {
+		log.Printf("демо: %s — %d броней на сегодня/завтра (МСК)", slug, inserted)
 	}
 }
 

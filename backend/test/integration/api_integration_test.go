@@ -228,7 +228,12 @@ func TestFullAPIIntegration(t *testing.T) {
 		if hallID == "" || tableA == "" {
 			t.Fatal("нет зала с минимум двумя столами в layout (проверьте сид / редактор схемы)")
 		}
-		restaurantID, _ = halls[0]["restaurant_id"].(string)
+		for _, h0 := range halls {
+			if id, _ := h0["id"].(string); id == hallID {
+				restaurantID, _ = h0["restaurant_id"].(string)
+				break
+			}
+		}
 		if restaurantID == "" {
 			detail := mustOK(t, doJSON(t, c, "GET", "/api/halls/"+url.PathEscape(hallID), "", nil), http.StatusOK)
 			var hallOne map[string]any

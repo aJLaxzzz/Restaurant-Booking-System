@@ -203,7 +203,12 @@ func (a *Handlers) handleWaiterTables(w http.ResponseWriter, r *http.Request) {
 			OR $2 IN ('admin','owner')
 		)
 		AND r.status IN ('confirmed','seated','in_service','pending_payment')
-		ORDER BY r.start_time`, u.ID, u.Role, ridScope)
+		ORDER BY
+		  CASE
+		    WHEN r.status IN ('seated','in_service','pending_payment') THEN 0
+		    ELSE 1
+		  END,
+		  r.start_time ASC`, u.ID, u.Role, ridScope)
 	if err != nil {
 		a.err(w, http.StatusInternalServerError, "БД")
 		return

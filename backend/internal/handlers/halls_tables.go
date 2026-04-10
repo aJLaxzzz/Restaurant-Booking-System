@@ -65,12 +65,15 @@ func (a *Handlers) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Capacity *int     `json:"capacity"`
-		X        *float64 `json:"x"`
-		Y        *float64 `json:"y"`
-		Shape    *string  `json:"shape"`
-		Status   *string  `json:"status"`
-		Number   *int     `json:"table_number"`
+		Capacity    *int     `json:"capacity"`
+		X           *float64 `json:"x"`
+		Y           *float64 `json:"y"`
+		Shape       *string  `json:"shape"`
+		Status      *string  `json:"status"`
+		Number      *int     `json:"table_number"`
+		Width       *float64 `json:"width"`
+		Height      *float64 `json:"height"`
+		RotationDeg *float64 `json:"rotation_deg"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	ct, err := a.Pool.Exec(r.Context(), `
@@ -81,14 +84,18 @@ func (a *Handlers) handleTableUpdate(w http.ResponseWriter, r *http.Request) {
 			shape = COALESCE($6, shape),
 			status = COALESCE($7, status),
 			table_number = COALESCE($8, table_number),
+			width = COALESCE($9, width),
+			height = COALESCE($10, height),
+			rotation_deg = COALESCE($11, rotation_deg),
 			updated_at = NOW()
 		WHERE id=$1 AND hall_id=$2`,
-		tid, hallID, body.Capacity, body.X, body.Y, body.Shape, body.Status, body.Number)
+		tid, hallID, body.Capacity, body.X, body.Y, body.Shape, body.Status, body.Number,
+		body.Width, body.Height, body.RotationDeg)
 	if err != nil || ct.RowsAffected() == 0 {
 		a.err(w, http.StatusNotFound, "стол не найден")
 		return
 	}
-	a.emitHallEvent(hallID, map[string]any{"event": "table.status_changed", "table_id": tid.String(), "timestamp": time.Now().UTC().Format(time.RFC3339)})
+	a.emitHallEvent(hallID, map[string]any{"event": "hall.layout_updated", "table_id": tid.String(), "timestamp": time.Now().UTC().Format(time.RFC3339)})
 	w.WriteHeader(http.StatusNoContent)
 }
 

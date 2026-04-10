@@ -3,6 +3,7 @@ import { parseISO } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { formatInTimeZone } from 'date-fns-tz';
 import { api } from '../../api';
+import { AdminWaiterWorkCalendar } from './AdminWaiterWorkCalendar';
 
 const moscowTZ = 'Europe/Moscow';
 
@@ -114,6 +115,11 @@ export function AdminWaitersPanel() {
         </table>
       </div>
       {rows.length === 0 && !err && <p className="muted">Нет официантов в этом заведении</p>}
+      {rows.length > 0 && (
+        <AdminWaiterWorkCalendar
+          waiters={rows.map((w) => ({ id: w.id, full_name: w.full_name, email: w.email }))}
+        />
+      )}
     </>
   );
 }

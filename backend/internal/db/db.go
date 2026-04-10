@@ -68,11 +68,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 		if hasExtraJSON {
 			legacy := []string{
-				"001_init.sql",
-				"002_waiter_notes.sql",
-				"003_aggregator_menu_layout.sql",
-				"004_uploads_menu_image.sql",
-				"005_restaurant_contact_hours.sql",
+				"001_initial_schema.sql",
 			}
 			for _, name := range legacy {
 				if _, err := pool.Exec(ctx, `INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`, name); err != nil {

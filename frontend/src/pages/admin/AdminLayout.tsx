@@ -19,8 +19,11 @@ export default function AdminLayout() {
         <NavLink to="/admin" end className={({ isActive }) => (isActive ? 'active' : undefined)}>
           Брони
         </NavLink>
-        <NavLink to="/admin/menu" className={({ isActive }) => (isActive ? 'active' : undefined)}>
+        <NavLink to="/admin/menu" end className={({ isActive }) => (isActive ? 'active' : undefined)}>
           Меню
+        </NavLink>
+        <NavLink to="/admin/menu/positions" className={({ isActive }) => (isActive ? 'active' : undefined)}>
+          Позиции меню
         </NavLink>
         <NavLink to="/admin/staff" className={({ isActive }) => (isActive ? 'active' : undefined)}>
           Персонал

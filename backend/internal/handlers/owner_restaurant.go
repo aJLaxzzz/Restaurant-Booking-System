@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -120,16 +121,17 @@ func (a *Handlers) handleRestaurantUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var body struct {
-		Name        *string          `json:"name"`
-		Address     *string          `json:"address"`
-		City        *string          `json:"city"`
-		Slug        *string          `json:"slug"`
-		Description *string          `json:"description"`
-		PhotoURL    *string          `json:"photo_url"`
-		Phone       *string          `json:"phone"`
-		OpensAt     *string          `json:"opens_at"`
-		ClosesAt    *string          `json:"closes_at"`
-		ExtraJSON   *json.RawMessage `json:"extra_json"`
+		Name          *string          `json:"name"`
+		Address       *string          `json:"address"`
+		City          *string          `json:"city"`
+		Slug          *string          `json:"slug"`
+		Description   *string          `json:"description"`
+		PhotoURL      *string          `json:"photo_url"`
+		Phone         *string          `json:"phone"`
+		OpensAt       *string          `json:"opens_at"`
+		ClosesAt      *string          `json:"closes_at"`
+		ExtraJSON     *json.RawMessage `json:"extra_json"`
+		ContactEmail  *string          `json:"contact_email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		a.err(w, http.StatusBadRequest, "json")
@@ -188,9 +190,14 @@ func (a *Handlers) handleRestaurantUpdate(w http.ResponseWriter, r *http.Request
 		args = append(args, strings.TrimSpace(*body.ClosesAt))
 		n++
 	}
-	if body.ExtraJSON != nil && len(*body.ExtraJSON) > 0 {
+	if body.ContactEmail != nil || (body.ExtraJSON != nil && len(*body.ExtraJSON) > 0) {
+		merged, err := a.mergeRestaurantExtraJSON(r.Context(), rid, body.ContactEmail, body.ExtraJSON)
+		if err != nil {
+			a.err(w, http.StatusBadRequest, "extra_json")
+			return
+		}
 		sets = append(sets, fmt.Sprintf("extra_json=$%d::jsonb", n))
-		args = append(args, string(*body.ExtraJSON))
+		args = append(args, merged)
 		n++
 	}
 	if len(sets) == 0 {
@@ -273,4 +280,29 @@ func (a *Handlers) handleUploadMenuItemPhoto(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	a.json(w, http.StatusOK, map[string]string{"url": url})
+}
+
+func (a *Handlers) mergeRestaurantExtraJSON(ctx context.Context, rid uuid.UUID, contactEmail *string, patch *json.RawMessage) ([]byte, error) {
+	var raw []byte
+	err := a.Pool.QueryRow(ctx, `SELECT COALESCE(extra_json::text, '{}') FROM restaurants WHERE id=$1`, rid).Scan(&raw)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		m = map[string]interface{}{}
+	}
+	if contactEmail != nil {
+		m["contact_email"] = strings.TrimSpace(*contactEmail)
+	}
+	if patch != nil && len(*patch) > 0 {
+		var p map[string]interface{}
+		if err := json.Unmarshal(*patch, &p); err != nil {
+			return nil, err
+		}
+		for k, v := range p {
+			m[k] = v
+		}
+	}
+	return json.Marshal(m)
 }

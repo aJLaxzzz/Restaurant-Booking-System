@@ -16,7 +16,8 @@ import (
 func (a *Handlers) handleRestaurantsList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rows, err := a.Pool.Query(ctx, `
-		SELECT id, COALESCE(name,''), COALESCE(slug,''), COALESCE(city,''), COALESCE(description,''), COALESCE(photo_url,'')
+		SELECT id, COALESCE(name,''), COALESCE(slug,''), COALESCE(city,''), COALESCE(description,''), COALESCE(photo_url,''),
+		       COALESCE(address,''), COALESCE(phone,''), COALESCE(opens_at,''), COALESCE(closes_at,'')
 		FROM restaurants ORDER BY name`)
 	if err != nil {
 		log.Printf("GET /restaurants list primary: %v", err)
@@ -40,6 +41,7 @@ func (a *Handlers) handleRestaurantsList(w http.ResponseWriter, r *http.Request)
 			out = append(out, map[string]any{
 				"id": id.String(), "name": name, "slug": "", "city": "",
 				"description": addr, "photo_url": "",
+				"address": "", "phone": "", "opens_at": "", "closes_at": "",
 			})
 		}
 		a.json(w, http.StatusOK, out)
@@ -49,14 +51,15 @@ func (a *Handlers) handleRestaurantsList(w http.ResponseWriter, r *http.Request)
 	var out []map[string]any
 	for rows.Next() {
 		var id uuid.UUID
-		var name, slug, city, desc, photo string
-		if err := rows.Scan(&id, &name, &slug, &city, &desc, &photo); err != nil {
+		var name, slug, city, desc, photo, addr, phone, opensAt, closesAt string
+		if err := rows.Scan(&id, &name, &slug, &city, &desc, &photo, &addr, &phone, &opensAt, &closesAt); err != nil {
 			log.Printf("GET /restaurants scan: %v", err)
 			continue
 		}
 		out = append(out, map[string]any{
 			"id": id.String(), "name": name, "slug": slug, "city": city,
 			"description": desc, "photo_url": photo,
+			"address": addr, "phone": phone, "opens_at": opensAt, "closes_at": closesAt,
 		})
 	}
 	a.json(w, http.StatusOK, out)
@@ -69,10 +72,11 @@ func (a *Handlers) handleRestaurantGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	var name, slug, city, desc, photo string
+	var name, slug, city, desc, photo, address string
 	err = a.Pool.QueryRow(ctx, `
-		SELECT COALESCE(name,''), COALESCE(slug,''), COALESCE(city,''), COALESCE(description,''), COALESCE(photo_url,'')
-		FROM restaurants WHERE id=$1`, id).Scan(&name, &slug, &city, &desc, &photo)
+		SELECT COALESCE(name,''), COALESCE(slug,''), COALESCE(city,''), COALESCE(description,''), COALESCE(photo_url,''),
+		       COALESCE(address,'')
+		FROM restaurants WHERE id=$1`, id).Scan(&name, &slug, &city, &desc, &photo, &address)
 	if errors.Is(err, pgx.ErrNoRows) {
 		a.err(w, http.StatusNotFound, "не найден")
 		return
@@ -92,7 +96,7 @@ func (a *Handlers) handleRestaurantGet(w http.ResponseWriter, r *http.Request) {
 			a.err(w, http.StatusInternalServerError, "БД")
 			return
 		}
-		slug, city, desc, photo = "", "", addr, ""
+		slug, city, desc, photo, address = "", "", "", "", addr
 	}
 
 	phone, opensAt, closesAt := "", "", ""
@@ -116,7 +120,7 @@ func (a *Handlers) handleRestaurantGet(w http.ResponseWriter, r *http.Request) {
 
 	a.json(w, http.StatusOK, map[string]any{
 		"id": id.String(), "name": name, "slug": slug, "city": city,
-		"description": desc, "photo_url": photo,
+		"description": desc, "photo_url": photo, "address": address,
 		"phone": phone, "opens_at": opensAt, "closes_at": closesAt,
 		"extra_json": extraObj,
 	})

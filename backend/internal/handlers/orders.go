@@ -42,8 +42,11 @@ func (a *Handlers) reservationOrderAccess(w http.ResponseWriter, r *http.Request
 			return uuid.Nil, uuid.Nil, false
 		}
 		if needEdit {
-			a.err(w, http.StatusForbidden, "только просмотр")
-			return uuid.Nil, uuid.Nil, false
+			if status != "seated" && status != "in_service" {
+				a.err(w, http.StatusForbidden, "заказ по меню доступен после посадки")
+				return uuid.Nil, uuid.Nil, false
+			}
+			return restID, uuid.Nil, true
 		}
 		return restID, uuid.Nil, true
 	}
@@ -182,6 +185,10 @@ func (a *Handlers) handleReservationOrderLinePost(w http.ResponseWriter, r *http
 		a.err(w, http.StatusConflict, "заказ недоступен для этого статуса брони")
 		return
 	}
+	if u := userFrom(r); u.Role == "client" && st != "seated" && st != "in_service" {
+		a.err(w, http.StatusConflict, "добавление блюд после посадки за столом")
+		return
+	}
 	oid, ok := a.getOrCreateOrder(w, r, rid)
 	if !ok {
 		return
@@ -225,6 +232,12 @@ func (a *Handlers) handleReservationOrderLineDelete(w http.ResponseWriter, r *ht
 		return
 	}
 	if _, _, ok := a.reservationOrderAccess(w, r, rid, true); !ok {
+		return
+	}
+	var stDel string
+	_ = a.Pool.QueryRow(r.Context(), `SELECT status FROM reservations WHERE id=$1`, rid).Scan(&stDel)
+	if userFrom(r).Role == "client" && stDel != "seated" && stDel != "in_service" {
+		a.err(w, http.StatusConflict, "изменение заказа после посадки")
 		return
 	}
 	lid, err := uuid.Parse(chi.URLParam(r, "lid"))

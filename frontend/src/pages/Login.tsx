@@ -1,6 +1,20 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
+import { api } from '../api';
+
+function pathAfterLogin(role: string): string {
+  switch (role) {
+    case 'admin':
+      return '/admin';
+    case 'waiter':
+      return '/waiter';
+    case 'owner':
+      return '/owner';
+    default:
+      return '/';
+  }
+}
 
 export default function Login() {
   const { login } = useAuth();
@@ -14,7 +28,8 @@ export default function Login() {
     setErr('');
     try {
       await login(email, password);
-      nav('/hall');
+      const { data } = await api.get<{ role: string }>('/auth/me');
+      nav(pathAfterLogin(data.role));
     } catch {
       setErr('Неверный email или пароль');
     }

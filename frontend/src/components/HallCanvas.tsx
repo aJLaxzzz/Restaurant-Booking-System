@@ -41,8 +41,8 @@ const colors: Record<string, string> = {
 };
 
 const GRID = 20;
-const STAGE_W = 920;
-const STAGE_H = 640;
+const DEFAULT_STAGE_W = 920;
+const DEFAULT_STAGE_H = 640;
 
 function isRectLike(shape: string) {
   const s = (shape || '').toLowerCase();
@@ -79,6 +79,16 @@ export function HallCanvas({
   const [lineStart, setLineStart] = useState<{ x: number; y: number } | null>(null);
   const [zoneCorner, setZoneCorner] = useState<{ x: number; y: number } | null>(null);
   const [undoStack, setUndoStack] = useState<Array<{ walls: Wall[]; decorations: Decoration[] }>>([]);
+  const [stageW, setStageW] = useState(DEFAULT_STAGE_W);
+  const [stageH, setStageH] = useState(DEFAULT_STAGE_H);
+  /** Локальный ввод размеров полотна (можно очистить поле без «0»). */
+  const [stageWBuf, setStageWBuf] = useState<string | null>(null);
+  const [stageHBuf, setStageHBuf] = useState<string | null>(null);
+
+  useEffect(() => {
+    setStageWBuf(null);
+    setStageHBuf(null);
+  }, [stageW, stageH]);
 
   const captureUndo = () => {
     setUndoStack((s) => [
@@ -110,10 +120,16 @@ export function HallCanvas({
         tables: TableShape[] | null;
         walls: Wall[] | null;
         decorations?: Decoration[] | null;
+        canvas_width?: number;
+        canvas_height?: number;
       }>(`/halls/${hallId}/layout`);
       setTables(Array.isArray(data.tables) ? data.tables : []);
       setWalls(Array.isArray(data.walls) ? data.walls : []);
       setDecorations(Array.isArray(data.decorations) ? data.decorations : []);
+      const cw = typeof data.canvas_width === 'number' && data.canvas_width > 0 ? data.canvas_width : DEFAULT_STAGE_W;
+      const ch = typeof data.canvas_height === 'number' && data.canvas_height > 0 ? data.canvas_height : DEFAULT_STAGE_H;
+      setStageW(Math.min(2000, Math.max(400, cw)));
+      setStageH(Math.min(2000, Math.max(400, ch)));
     } catch (ex: unknown) {
       const ax = ex as { response?: { data?: { error?: string } }; message?: string };
       setLoadError(ax.response?.data?.error || ax.message || 'Не удалось загрузить схему зала');
@@ -153,6 +169,8 @@ export function HallCanvas({
 
   const saveLayout = async () => {
     await api.put(`/halls/${hallId}/layout`, {
+      canvas_width: stageW,
+      canvas_height: stageH,
       tables: tables.map((t) => {
         const tw = t.width && t.width > 0 ? t.width : (t.radius || 28) * 2;
         const th = t.height && t.height > 0 ? t.height : (t.radius || 28) * 2;
@@ -245,11 +263,11 @@ export function HallCanvas({
 
   const gridLines: JSX.Element[] = [];
   if (showGrid && editMode) {
-    for (let gx = 0; gx <= STAGE_W; gx += GRID) {
+    for (let gx = 0; gx <= stageW; gx += GRID) {
       gridLines.push(
         <Line
           key={`gx-${gx}`}
-          points={[gx, 0, gx, STAGE_H]}
+          points={[gx, 0, gx, stageH]}
           stroke="#334155"
           strokeWidth={0.5}
           opacity={0.35}
@@ -257,11 +275,11 @@ export function HallCanvas({
         />
       );
     }
-    for (let gy = 0; gy <= STAGE_H; gy += GRID) {
+    for (let gy = 0; gy <= stageH; gy += GRID) {
       gridLines.push(
         <Line
           key={`gy-${gy}`}
-          points={[0, gy, STAGE_W, gy]}
+          points={[0, gy, stageW, gy]}
           stroke="#334155"
           strokeWidth={0.5}
           opacity={0.35}
@@ -276,20 +294,23 @@ export function HallCanvas({
       {loadError && <p className="form-msg">{loadError}</p>}
       {editMode && (
         <div className="hall-toolbar hall-toolbar-wrap">
-          <span className="hall-toolbar-label">Столы:</span>
-          <button type="button" onClick={() => void addTable({ capacity: 2, shape: 'round', w: 52, h: 52 })}>
-            2 места
-          </button>
-          <button type="button" onClick={() => void addTable({ capacity: 4, shape: 'rect', w: 88, h: 64 })}>
-            4 места
-          </button>
-          <button type="button" onClick={() => void addTable({ capacity: 8, shape: 'rect', w: 120, h: 88 })}>
-            8 мест
-          </button>
-          <button type="button" onClick={() => void addTable()}>
-            + Стол (4)
-          </button>
-          <span className="hall-toolbar-label">Декор (клик по полу ×2 для линии/прямоугольника):</span>
+          <div className="hall-toolbar-group">
+            <span className="hall-toolbar-label">Столы</span>
+            <button type="button" onClick={() => void addTable({ capacity: 2, shape: 'round', w: 52, h: 52 })}>
+              2 места
+            </button>
+            <button type="button" onClick={() => void addTable({ capacity: 4, shape: 'rect', w: 88, h: 64 })}>
+              4 места
+            </button>
+            <button type="button" onClick={() => void addTable({ capacity: 8, shape: 'rect', w: 120, h: 88 })}>
+              8 мест
+            </button>
+            <button type="button" onClick={() => void addTable()}>
+              + Стол (4)
+            </button>
+          </div>
+          <div className="hall-toolbar-group">
+            <span className="hall-toolbar-label">Декор (2× клик)</span>
           <button
             type="button"
             className={placeMode === 'door' ? 'btn' : 'secondary'}
@@ -326,7 +347,9 @@ export function HallCanvas({
           <button type="button" className="secondary" onClick={addPresetTerrace}>
             Пресет «Терраса»
           </button>
-          <span className="hall-toolbar-label">Вид:</span>
+          </div>
+          <div className="hall-toolbar-group">
+            <span className="hall-toolbar-label">Вид</span>
           <button type="button" className="secondary" onClick={() => setShowGrid((g) => !g)}>
             Сетка
           </button>
@@ -340,9 +363,86 @@ export function HallCanvas({
           <button type="button" className="secondary" onClick={doUndo} disabled={undoStack.length === 0}>
             Отмена
           </button>
+          </div>
+          <div className="hall-toolbar-group">
+            <span className="hall-toolbar-label">Полотно px</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            className="hall-size-input"
+            value={stageWBuf !== null ? stageWBuf : String(Math.round(stageW))}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === '' || /^\d{1,4}$/.test(v)) setStageWBuf(v);
+            }}
+            onBlur={() => {
+              const raw = stageWBuf;
+              setStageWBuf(null);
+              if (raw === null || raw.trim() === '') return;
+              const n = parseInt(raw, 10);
+              if (Number.isFinite(n)) setStageW(Math.min(2000, Math.max(400, n)));
+            }}
+            title="Ширина полотна"
+          />
+          <span className="muted">×</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            className="hall-size-input"
+            value={stageHBuf !== null ? stageHBuf : String(Math.round(stageH))}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === '' || /^\d{1,4}$/.test(v)) setStageHBuf(v);
+            }}
+            onBlur={() => {
+              const raw = stageHBuf;
+              setStageHBuf(null);
+              if (raw === null || raw.trim() === '') return;
+              const n = parseInt(raw, 10);
+              if (Number.isFinite(n)) setStageH(Math.min(2000, Math.max(400, n)));
+            }}
+            title="Высота полотна"
+          />
+          <button
+            type="button"
+            className="secondary btn-sm"
+            onClick={() => {
+              setStageW(920);
+              setStageH(640);
+              setStageWBuf(null);
+              setStageHBuf(null);
+            }}
+          >
+            920×640
+          </button>
+          <button
+            type="button"
+            className="secondary btn-sm"
+            onClick={() => {
+              setStageW(1200);
+              setStageH(800);
+              setStageWBuf(null);
+              setStageHBuf(null);
+            }}
+          >
+            1200×800
+          </button>
+          <button
+            type="button"
+            className="secondary btn-sm"
+            onClick={() => {
+              setStageW(880);
+              setStageH(600);
+              setStageWBuf(null);
+              setStageHBuf(null);
+            }}
+          >
+            880×600
+          </button>
           <button type="button" className="secondary" onClick={() => void saveLayout()}>
             Сохранить схему
           </button>
+          </div>
         </div>
       )}
       {editMode && placeMode !== 'none' && (
@@ -352,14 +452,14 @@ export function HallCanvas({
           {placeMode === 'zone' && (zoneCorner ? 'Второй клик — противоположный угол зоны' : 'Первый клик — угол зоны')}
         </p>
       )}
-      <Stage ref={stageRef} width={STAGE_W} height={STAGE_H} className="hall-stage" scaleX={scale} scaleY={scale}>
+      <Stage ref={stageRef} width={stageW} height={stageH} className="hall-stage" scaleX={scale} scaleY={scale}>
         <Layer>
-          <Rect x={0} y={0} width={STAGE_W} height={STAGE_H} fill="#0f172a" cornerRadius={12} listening={false} />
+          <Rect x={0} y={0} width={stageW} height={stageH} fill="#0f172a" cornerRadius={12} listening={false} />
           <Rect
             x={8}
             y={8}
-            width={STAGE_W - 16}
-            height={STAGE_H - 16}
+            width={stageW - 16}
+            height={stageH - 16}
             fill="#1e293b"
             stroke="#334155"
             strokeWidth={1}
@@ -386,7 +486,7 @@ export function HallCanvas({
             if (t === 'window_band') {
               const x = Number(dec.x) || 0;
               const y = Number(dec.y) || 0;
-              const ww = Number(dec.w) || STAGE_W;
+              const ww = Number(dec.w) || stageW;
               const hh = Number(dec.h) || 24;
               return (
                 <Rect

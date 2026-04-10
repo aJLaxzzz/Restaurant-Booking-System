@@ -1,15 +1,129 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { format, parseISO } from 'date-fns';
+import { reservationStatusLabelRu } from '../utils/reservationStatus';
 
 type Row = {
   id: string;
+  restaurant_id?: string;
   table_number: number;
   start_time: string;
   end_time: string;
   guest_count: number;
   status: string;
 };
+
+function formatRub(kopecks: number) {
+  return (kopecks / 100).toLocaleString('ru-RU', {
+    style: 'currency',
+    currency: 'RUB',
+    maximumFractionDigits: 0,
+  });
+}
+
+function ClientSelfOrder({
+  reservationId,
+  restaurantId,
+}: {
+  reservationId: string;
+  restaurantId: string;
+}) {
+  type MenuItem = {
+    id: string;
+    name: string;
+    description?: string;
+    price_kopecks: number;
+    image_url?: string;
+  };
+  const [menu, setMenu] = useState<MenuItem[]>([]);
+  const [lines, setLines] = useState<
+    { id: string; item_name: string; quantity: number; line_total_kopecks: number; guest_label: string }[]
+  >([]);
+  const [total, setTotal] = useState(0);
+  const [qty, setQty] = useState(1);
+  const [msg, setMsg] = useState('');
+
+  const load = async () => {
+    const [{ data: ord }, m] = await Promise.all([
+      api.get<{ lines: typeof lines; total_kopecks: number }>(`/reservations/${reservationId}/order`),
+      api.get<{ items?: MenuItem[] }>(`/restaurants/${restaurantId}/menu`),
+    ]);
+    setLines(Array.isArray(ord.lines) ? ord.lines : []);
+    setTotal(ord.total_kopecks || 0);
+    setMenu(Array.isArray(m.data.items) ? m.data.items : []);
+  };
+
+  useEffect(() => {
+    void load().catch(() => setMsg('Не удалось загрузить заказ'));
+  }, [reservationId, restaurantId]);
+
+  const add = async (itemId: string) => {
+    setMsg('');
+    try {
+      await api.post(`/reservations/${reservationId}/order/lines`, {
+        menu_item_id: itemId,
+        quantity: qty,
+        guest_label: 'Гость',
+        note: '',
+      });
+      await load();
+    } catch {
+      setMsg('Не удалось добавить позицию');
+    }
+  };
+
+  const removeLine = async (lid: string) => {
+    setMsg('');
+    try {
+      await api.delete(`/reservations/${reservationId}/order/lines/${lid}`);
+      await load();
+    } catch {
+      setMsg('Не удалось удалить строку');
+    }
+  };
+
+  return (
+    <div className="my-res-order">
+      <h4 className="my-res-order-title">Заказ по меню</h4>
+      <div className="my-res-order-controls">
+        <label className="compact muted">Кол-во</label>
+        <input type="number" min={1} max={99} value={qty} onChange={(e) => setQty(Number(e.target.value))} />
+      </div>
+      <div className="public-menu-grid my-res-menu-grid">
+        {menu.map((it) => (
+          <article key={it.id} className="public-menu-card my-res-menu-card">
+            <button type="button" className="my-res-menu-card-hit" onClick={() => void add(it.id)}>
+              <div
+                className={`public-menu-card-visual${it.image_url ? '' : ' public-menu-card-visual--empty'}`}
+                style={it.image_url ? { backgroundImage: `url(${it.image_url})` } : undefined}
+                aria-hidden
+              />
+              <div className="public-menu-card-body">
+                <h4>{it.name}</h4>
+                {it.description ? <p className="muted public-menu-desc">{it.description}</p> : null}
+                <p className="public-menu-price">{formatRub(it.price_kopecks)} · добавить</p>
+              </div>
+            </button>
+          </article>
+        ))}
+      </div>
+      <ul className="my-res-order-lines">
+        {lines.map((l) => (
+          <li key={l.id}>
+            {l.item_name} ×{l.quantity} ({l.guest_label}) — {formatRub(l.line_total_kopecks)}
+            <button type="button" className="secondary btn-sm" onClick={() => void removeLine(l.id)}>
+              Удалить
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="my-res-order-total">
+        <strong>Итого: {formatRub(total)}</strong>
+      </p>
+      {msg && <p className="form-msg">{msg}</p>}
+    </div>
+  );
+}
 
 export default function MyReservations() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -47,7 +161,7 @@ export default function MyReservations() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <ReservationRow key={r.id} r={r} onCancel={cancel} />
+                <ReservationBlock key={r.id} r={r} onCancel={cancel} />
               ))}
             </tbody>
           </table>
@@ -58,7 +172,7 @@ export default function MyReservations() {
   );
 }
 
-function ReservationRow({ r, onCancel }: { r: Row; onCancel: (id: string) => void }) {
+function ReservationBlock({ r, onCancel }: { r: Row; onCancel: (id: string) => void }) {
   const [orderTotal, setOrderTotal] = useState<number | null>(null);
   const [orderOpen, setOrderOpen] = useState(false);
 
@@ -82,36 +196,47 @@ function ReservationRow({ r, onCancel }: { r: Row; onCancel: (id: string) => voi
   };
 
   const showPay = orderTotal != null && orderTotal > 0 && orderOpen && (r.status === 'seated' || r.status === 'in_service');
+  const showSelfOrder =
+    (r.status === 'seated' || r.status === 'in_service') && r.restaurant_id && r.restaurant_id.length > 0;
 
   return (
-    <tr>
-      <td>№{r.table_number}</td>
-      <td>{format(parseISO(r.start_time), 'dd.MM.yyyy HH:mm')}</td>
-      <td>{r.guest_count}</td>
-      <td>
-        <span className="status-pill">{r.status}</span>
-      </td>
-      <td>
-        {orderTotal != null && orderTotal > 0 ? (
-          <span>{(orderTotal / 100).toFixed(0)} ₽</span>
-        ) : (
-          <span className="muted">—</span>
-        )}
-      </td>
-      <td>
-        <div className="btn-row tight">
-          {showPay && (
-            <button type="button" className="btn btn-sm" onClick={() => void payTab()}>
-              Оплатить счёт
-            </button>
+    <>
+      <tr>
+        <td>№{r.table_number}</td>
+        <td>{format(parseISO(r.start_time), 'dd.MM.yyyy HH:mm')}</td>
+        <td>{r.guest_count}</td>
+        <td>
+          <span className="status-pill">{reservationStatusLabelRu(r.status)}</span>
+        </td>
+        <td>
+          {orderTotal != null && orderTotal > 0 ? (
+            <span>{(orderTotal / 100).toFixed(0)} ₽</span>
+          ) : (
+            <span className="muted">—</span>
           )}
-          {(r.status === 'pending_payment' || r.status === 'confirmed') && (
-            <button type="button" className="secondary btn-sm" onClick={() => void onCancel(r.id)}>
-              Отменить
-            </button>
-          )}
-        </div>
-      </td>
-    </tr>
+        </td>
+        <td>
+          <div className="btn-row tight">
+            {showPay && (
+              <button type="button" className="btn btn-sm" onClick={() => void payTab()}>
+                Оплатить счёт
+              </button>
+            )}
+            {(r.status === 'pending_payment' || r.status === 'confirmed') && (
+              <button type="button" className="secondary btn-sm" onClick={() => void onCancel(r.id)}>
+                Отменить
+              </button>
+            )}
+          </div>
+        </td>
+      </tr>
+      {showSelfOrder && (
+        <tr className="my-res-order-row">
+          <td colSpan={6}>
+            <ClientSelfOrder reservationId={r.id} restaurantId={r.restaurant_id!} />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

@@ -71,12 +71,11 @@ func (a *Handlers) handleReservationCancel(w http.ResponseWriter, r *http.Reques
 	if status == "confirmed" {
 		if u.Role == "client" || u.Role == "owner" {
 			h := time.Until(start).Hours()
-			if h >= 24 {
-				refundPct = a.getSettingInt(r.Context(), "refund_more_than_24h_percent", 100)
-			} else if h >= 12 {
-				refundPct = a.getSettingInt(r.Context(), "refund_12_to_24h_percent", 50)
+			if h > 2 {
+				refundPct = a.getSettingInt(r.Context(), "refund_more_than_2h_percent", 100)
 			} else {
-				refundPct = a.getSettingInt(r.Context(), "refund_less_than_12h_percent", 0)
+				refundPct = a.getSettingInt(r.Context(), "refund_within_2h_percent",
+					a.getSettingInt(r.Context(), "refund_less_than_12h_percent", 0))
 			}
 		} else {
 			refundPct = 100

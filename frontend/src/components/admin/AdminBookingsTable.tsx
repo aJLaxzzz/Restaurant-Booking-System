@@ -1,6 +1,7 @@
 import { parseISO } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { formatInTimeZone } from 'date-fns-tz';
+import { reservationStatusLabelRu } from '../../utils/reservationStatus';
 
 const moscowTZ = 'Europe/Moscow';
 
@@ -49,7 +50,7 @@ export function AdminBookingsTable({ rows, onCheckin }: Props) {
                 <td>№{r.table_number}</td>
                 <td>{formatStartMoscow(r.start_time)}</td>
                 <td>
-                  <span className="status-pill">{r.status}</span>
+                  <span className="status-pill">{reservationStatusLabelRu(r.status)}</span>
                 </td>
                 <td>
                   {r.status === 'confirmed' && (
