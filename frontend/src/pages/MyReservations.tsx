@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { format, parseISO } from 'date-fns';
 import { reservationStatusLabelRu } from '../utils/reservationStatus';
+import { resolvePublicImageUrl } from '../utils/publicAssetUrl';
 
 type Row = {
   id: string;
@@ -154,7 +155,11 @@ function ClientSelfOrder({
                 <button type="button" className="my-res-menu-card-hit" onClick={() => void add(it.id)}>
                   <div
                     className={`public-menu-card-visual${it.image_url ? '' : ' public-menu-card-visual--empty'}`}
-                    style={it.image_url ? { backgroundImage: `url(${it.image_url})` } : undefined}
+                    style={
+                      it.image_url
+                        ? { backgroundImage: `url(${resolvePublicImageUrl(it.image_url)})` }
+                        : undefined
+                    }
                     aria-hidden
                   />
                   <div className="public-menu-card-body">

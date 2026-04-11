@@ -121,17 +121,18 @@ func (a *Handlers) handleRestaurantUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var body struct {
-		Name          *string          `json:"name"`
-		Address       *string          `json:"address"`
-		City          *string          `json:"city"`
-		Slug          *string          `json:"slug"`
-		Description   *string          `json:"description"`
-		PhotoURL      *string          `json:"photo_url"`
-		Phone         *string          `json:"phone"`
-		OpensAt       *string          `json:"opens_at"`
-		ClosesAt      *string          `json:"closes_at"`
-		ExtraJSON     *json.RawMessage `json:"extra_json"`
-		ContactEmail  *string          `json:"contact_email"`
+		Name             *string          `json:"name"`
+		Address          *string          `json:"address"`
+		City             *string          `json:"city"`
+		Slug             *string          `json:"slug"`
+		Description      *string          `json:"description"`
+		PhotoURL         *string          `json:"photo_url"`
+		Phone            *string          `json:"phone"`
+		OpensAt          *string          `json:"opens_at"`
+		ClosesAt         *string          `json:"closes_at"`
+		ExtraJSON        *json.RawMessage `json:"extra_json"`
+		ContactEmail     *string          `json:"contact_email"`
+		PhotoGalleryURLs *[]string        `json:"photo_gallery_urls"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		a.err(w, http.StatusBadRequest, "json")
@@ -190,8 +191,8 @@ func (a *Handlers) handleRestaurantUpdate(w http.ResponseWriter, r *http.Request
 		args = append(args, strings.TrimSpace(*body.ClosesAt))
 		n++
 	}
-	if body.ContactEmail != nil || (body.ExtraJSON != nil && len(*body.ExtraJSON) > 0) {
-		merged, err := a.mergeRestaurantExtraJSON(r.Context(), rid, body.ContactEmail, body.ExtraJSON)
+	if body.ContactEmail != nil || (body.ExtraJSON != nil && len(*body.ExtraJSON) > 0) || body.PhotoGalleryURLs != nil {
+		merged, err := a.mergeRestaurantExtraJSON(r.Context(), rid, body.ContactEmail, body.ExtraJSON, body.PhotoGalleryURLs)
 		if err != nil {
 			a.err(w, http.StatusBadRequest, "extra_json")
 			return
@@ -234,6 +235,15 @@ func (a *Handlers) handleUploadRestaurantPhoto(w http.ResponseWriter, r *http.Re
 	url, err := a.saveUploadFile(r, "photo")
 	if err != nil {
 		a.err(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	target := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("target")))
+	if target == "gallery" {
+		if err := a.appendRestaurantPhotoGallery(r.Context(), rid, url); err != nil {
+			a.err(w, http.StatusInternalServerError, "БД")
+			return
+		}
+		a.json(w, http.StatusOK, map[string]string{"url": url})
 		return
 	}
 	_, err = a.Pool.Exec(r.Context(), `UPDATE restaurants SET photo_url=$2 WHERE id=$1`, rid, url)
@@ -282,7 +292,7 @@ func (a *Handlers) handleUploadMenuItemPhoto(w http.ResponseWriter, r *http.Requ
 	a.json(w, http.StatusOK, map[string]string{"url": url})
 }
 
-func (a *Handlers) mergeRestaurantExtraJSON(ctx context.Context, rid uuid.UUID, contactEmail *string, patch *json.RawMessage) ([]byte, error) {
+func (a *Handlers) mergeRestaurantExtraJSON(ctx context.Context, rid uuid.UUID, contactEmail *string, patch *json.RawMessage, photoGallery *[]string) ([]byte, error) {
 	var raw []byte
 	err := a.Pool.QueryRow(ctx, `SELECT COALESCE(extra_json::text, '{}') FROM restaurants WHERE id=$1`, rid).Scan(&raw)
 	if err != nil {
@@ -295,6 +305,16 @@ func (a *Handlers) mergeRestaurantExtraJSON(ctx context.Context, rid uuid.UUID, 
 	if contactEmail != nil {
 		m["contact_email"] = strings.TrimSpace(*contactEmail)
 	}
+	if photoGallery != nil {
+		arr := make([]any, 0, len(*photoGallery))
+		for _, u := range *photoGallery {
+			s := strings.TrimSpace(u)
+			if s != "" {
+				arr = append(arr, s)
+			}
+		}
+		m["photo_gallery"] = arr
+	}
 	if patch != nil && len(*patch) > 0 {
 		var p map[string]interface{}
 		if err := json.Unmarshal(*patch, &p); err != nil {
@@ -305,4 +325,51 @@ func (a *Handlers) mergeRestaurantExtraJSON(ctx context.Context, rid uuid.UUID, 
 		}
 	}
 	return json.Marshal(m)
+}
+
+func (a *Handlers) appendRestaurantPhotoGallery(ctx context.Context, rid uuid.UUID, url string) error {
+	url = strings.TrimSpace(url)
+	if url == "" {
+		return nil
+	}
+	var raw []byte
+	err := a.Pool.QueryRow(ctx, `SELECT COALESCE(extra_json::text, '{}') FROM restaurants WHERE id=$1`, rid).Scan(&raw)
+	if err != nil {
+		return err
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		m = map[string]interface{}{}
+	}
+	var list []string
+	if g, ok := m["photo_gallery"]; ok && g != nil {
+		switch v := g.(type) {
+		case []interface{}:
+			for _, x := range v {
+				if s, ok := x.(string); ok && s != "" {
+					list = append(list, s)
+				}
+			}
+		case []string:
+			list = append(list, v...)
+		}
+	}
+	for _, existing := range list {
+		if existing == url {
+			goto write
+		}
+	}
+	list = append(list, url)
+write:
+	arr := make([]interface{}, len(list))
+	for i, s := range list {
+		arr[i] = s
+	}
+	m["photo_gallery"] = arr
+	out, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	_, err = a.Pool.Exec(ctx, `UPDATE restaurants SET extra_json=$2::jsonb WHERE id=$1`, rid, out)
+	return err
 }

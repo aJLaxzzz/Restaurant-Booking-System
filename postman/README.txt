@@ -1,0 +1,1 @@
+Импорт: Postman → Import → выберите Restaurant-Booking-API.postman_collection.json и Local.postman_environment.json. Активируйте окружение Local. Выполните Auth → Login (Tests пишет access_token в переменные коллекции). Подставьте hall_id, restaurant_id и др. из ответов API.

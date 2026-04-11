@@ -20,7 +20,7 @@ func (a *Handlers) handleRestaurantsList(w http.ResponseWriter, r *http.Request)
 		       COALESCE(address,''), COALESCE(phone,''), COALESCE(opens_at,''), COALESCE(closes_at,'')
 		FROM restaurants ORDER BY name`)
 	if err != nil {
-		log.Printf("GET /restaurants list primary: %v", err)
+		log.Printf("GET /restaurants list primary (будет использован упрощённый fallback — проверьте схему БД и миграции): %v", err)
 		rows, err = a.Pool.Query(ctx, `
 			SELECT id, COALESCE(name::text,''), COALESCE(address,'')
 			FROM restaurants ORDER BY name`)
@@ -122,7 +122,8 @@ func (a *Handlers) handleRestaurantGet(w http.ResponseWriter, r *http.Request) {
 		"id": id.String(), "name": name, "slug": slug, "city": city,
 		"description": desc, "photo_url": photo, "address": address,
 		"phone": phone, "opens_at": opensAt, "closes_at": closesAt,
-		"extra_json": extraObj,
+		"extra_json":         extraObj,
+		"photo_gallery_urls": photoGalleryURLsFromExtraMap(extraObj),
 	})
 }
 

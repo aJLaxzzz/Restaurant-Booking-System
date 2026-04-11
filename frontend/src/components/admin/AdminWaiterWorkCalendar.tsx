@@ -15,7 +15,7 @@ import { api } from '../../api';
 
 type WaiterBrief = { id: string; full_name: string; email: string };
 
-type Props = { waiters: WaiterBrief[] };
+type Props = { waiters: WaiterBrief[]; onSaved?: () => void };
 
 const PALETTE = ['#818cf8', '#34d399', '#fbbf24', '#f472b6', '#38bdf8', '#a78bfa'];
 
@@ -24,7 +24,7 @@ function colorFor(waiters: WaiterBrief[], id: string): string {
   return PALETTE[(idx >= 0 ? idx : 0) % PALETTE.length];
 }
 
-export function AdminWaiterWorkCalendar({ waiters }: Props) {
+export function AdminWaiterWorkCalendar({ waiters, onSaved }: Props) {
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [byWaiter, setByWaiter] = useState<Record<string, Set<string>>>({});
@@ -96,10 +96,12 @@ export function AdminWaiterWorkCalendar({ waiters }: Props) {
       return;
     }
     setByWaiter((prev) => {
+      const ids = Array.from(selectedIds);
+      const allHave = ids.every((wid) => (prev[wid] ?? new Set()).has(dayStr));
       const out = { ...prev };
-      for (const wid of selectedIds) {
+      for (const wid of ids) {
         const cur = new Set(out[wid] ?? []);
-        if (cur.has(dayStr)) cur.delete(dayStr);
+        if (allHave) cur.delete(dayStr);
         else cur.add(dayStr);
         out[wid] = cur;
       }
@@ -124,6 +126,7 @@ export function AdminWaiterWorkCalendar({ waiters }: Props) {
       }
       setMsg('Сохранено');
       await loadMonth();
+      onSaved?.();
     } catch (e: unknown) {
       if (axios.isAxiosError(e)) {
         const err = (e.response?.data as { error?: string } | undefined)?.error;
@@ -154,8 +157,8 @@ export function AdminWaiterWorkCalendar({ waiters }: Props) {
     <div className="admin-work-cal">
       <h3>Рабочие дни по календарю</h3>
       <p className="muted compact">
-        Слева отметьте официантов — клик по дню включает/выключает смену для всех выбранных. Цвета в ячейке
-        совпадают с легендой (до 6 цветов).
+        Слева отметьте официантов. Клик по дню: если у кого-то из выбранных дня ещё нет — день добавляется всем
+        выбранным; если уже есть у всех — снимается у всех. Для правки одного официанта отметьте только его.
       </p>
       <div className="admin-work-cal-main">
         <div className="admin-work-cal-side">

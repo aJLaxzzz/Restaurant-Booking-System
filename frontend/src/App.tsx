@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, Link, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './auth';
 import Home from './pages/Home';
 import RestaurantPage from './pages/RestaurantPage';
@@ -34,6 +34,12 @@ function RoleGate({ allow, children }: { allow: string[]; children: React.ReactN
 function NavBar() {
   const { user, logout } = useAuth();
   const loc = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    navigate('/', { replace: true });
+    await logout();
+  };
 
   const isActive = (path: string) => loc.pathname === path || (path !== '/' && loc.pathname.startsWith(path));
 
@@ -92,7 +98,7 @@ function NavBar() {
               <span className="role-badge" title={user.email}>
                 {roleLabel(user.role)}
               </span>
-              <button type="button" className="secondary btn-sm" onClick={() => void logout()}>
+              <button type="button" className="secondary btn-sm" onClick={() => void handleLogout()}>
                 Выйти
               </button>
             </>

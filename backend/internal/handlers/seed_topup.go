@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 
 	"github.com/google/uuid"
@@ -157,42 +158,60 @@ func (a *Handlers) dedupeBellaVistaRestaurants(ctx context.Context) {
 
 func (a *Handlers) syncDemoMoscowRestaurants(ctx context.Context) {
 	const addrLuna = "Москва, наб. Патриарших прудов, 10"
+	const addrTrattoria = "Москва, ул. Тверская, 12"
+	const nameTrattoria = "Траттория Тверская"
+	const descTrattoria = "Итальянская кухня и вино"
 	const addrBella = "Москва, Смоленская пл., 6"
 	const descBella = "Итальянская кухня в центре Москвы"
+	const nameBella = "Bella Vista"
 	_, _ = a.Pool.Exec(ctx, `
 		UPDATE restaurants SET city='Москва', address=$1
 		WHERE slug='la-luna'`, addrLuna)
 	_, _ = a.Pool.Exec(ctx, `
-		UPDATE restaurants SET city='Москва', address=$1, description=$2
-		WHERE slug='bella-vista'`, addrBella, descBella)
+		UPDATE restaurants SET city='Москва', address=$1, description=$2, name=$3
+		WHERE slug='trattoria-tverskaya'`, addrTrattoria, descTrattoria, nameTrattoria)
+	_, _ = a.Pool.Exec(ctx, `
+		UPDATE restaurants SET city='Москва', address=$1, description=$2, name=$3
+		WHERE slug='bella-vista'`, addrBella, descBella, nameBella)
 }
 
-// syncDemoRestaurantContacts — телефон, часы, email и локальные фото для демо-slug (старые БД).
+// syncDemoRestaurantContacts — телефон, часы, email, обложка и галерея для демо-slug (старые БД).
 func (a *Handlers) syncDemoRestaurantContacts(ctx context.Context) {
 	type row struct {
-		slug, phone, opens, closes, email, photo string
+		slug, phone, opens, closes, email string
 	}
 	rows := []row{
-		{"trattoria-tverskaya", "+7 (495) 111-20-01", "10:00", "23:00", "hello@trattoria-demo.rest", demoPhotoTrattoria},
-		{"la-luna", "+7 (495) 222-30-02", "11:00", "23:30", "kontakt@laluna-demo.rest", demoPhotoLaLuna},
-		{"sakura-lite", "+7 (495) 333-40-03", "12:00", "23:00", "info@sakura-demo.rest", demoPhotoSakura},
-		{"bella-vista", "+7 (495) 444-50-04", "10:00", "00:00", "ciao@bellavista-demo.rest", demoPhotoBella},
+		{DemoSlugTrattoria, "+7 (495) 111-20-01", "10:00", "23:00", "hello@trattoria-demo.rest"},
+		{DemoSlugLaLuna, "+7 (495) 222-30-02", "11:00", "23:30", "kontakt@laluna-demo.rest"},
+		{DemoSlugSakura, "+7 (495) 333-40-03", "12:00", "23:00", "info@sakura-demo.rest"},
+		{DemoSlugBella, "+7 (495) 444-50-04", "10:00", "00:00", "ciao@bellavista-demo.rest"},
 	}
 	for _, r := range rows {
+		patch, err := json.Marshal(map[string]any{
+			"contact_email": r.email,
+			"photo_gallery": demoRestaurantGalleryURLs(r.slug),
+		})
+		if err != nil {
+			continue
+		}
 		_, _ = a.Pool.Exec(ctx, `
 			UPDATE restaurants SET
 				phone = $2,
 				opens_at = $3,
 				closes_at = $4,
 				photo_url = $6,
-				extra_json = COALESCE(extra_json, '{}'::jsonb) || jsonb_build_object('contact_email', $5::text)
+				extra_json = COALESCE(extra_json, '{}'::jsonb) || $5::jsonb
 			WHERE slug = $1`,
-			r.slug, r.phone, r.opens, r.closes, r.email, r.photo)
+			r.slug, r.phone, r.opens, r.closes, patch, demoRestaurantCoverURL(r.slug))
 	}
 }
 
 func (a *Handlers) backfillDemoMenuImages(ctx context.Context) {
-	for _, slug := range []string{"trattoria-tverskaya", "la-luna", "sakura-lite", "bella-vista"} {
+	for _, slug := range []string{DemoSlugTrattoria, DemoSlugLaLuna, DemoSlugSakura, DemoSlugBella} {
+		urls := demoMenuImagesForSlug(slug)
+		if len(urls) == 0 {
+			continue
+		}
 		var rid uuid.UUID
 		if err := a.Pool.QueryRow(ctx, `SELECT id FROM restaurants WHERE slug=$1`, slug).Scan(&rid); err != nil {
 			continue
@@ -205,27 +224,17 @@ func (a *Handlers) backfillDemoMenuImages(ctx context.Context) {
 		}
 		i := 0
 		for itemRows.Next() {
+			if i >= len(urls) {
+				break
+			}
 			var mid uuid.UUID
 			if itemRows.Scan(&mid) != nil {
 				continue
 			}
-			_, _ = a.Pool.Exec(ctx, `UPDATE menu_items SET image_url=$2 WHERE id=$1`, mid, demoDishImageAt(i+slugOffset(slug)))
+			_, _ = a.Pool.Exec(ctx, `UPDATE menu_items SET image_url=$2 WHERE id=$1`, mid, urls[i])
 			i++
 		}
 		itemRows.Close()
-	}
-}
-
-func slugOffset(slug string) int {
-	switch slug {
-	case "la-luna":
-		return 3
-	case "sakura-lite":
-		return 8
-	case "bella-vista":
-		return 12
-	default:
-		return 0
 	}
 }
 
@@ -291,8 +300,8 @@ func (a *Handlers) topUpTrattoriaIfMissing(ctx context.Context, ownerID uuid.UUI
 	own := a.ownerIfNoRestaurant(ctx, ownerID)
 	if _, err := a.Pool.Exec(ctx, `
 		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
-		VALUES ($1,'Траттория Тверская','Москва, ул. Тверская, 12','trattoria-tverskaya','Москва','Итальянская кухня и вино',$2,$3,'+7 (495) 111-20-01','10:00','23:00','{"contact_email":"hello@trattoria-demo.rest"}'::jsonb)`,
-		rid, own, demoPhotoTrattoria); err != nil {
+		VALUES ($1,'Траттория Тверская','Москва, ул. Тверская, 12','trattoria-tverskaya','Москва','Итальянская кухня и вино',$2,$3,'+7 (495) 111-20-01','10:00','23:00',$4::jsonb)`,
+		rid, own, demoRestaurantCoverURL(DemoSlugTrattoria), demoRestaurantExtraJSONForSeed("hello@trattoria-demo.rest", DemoSlugTrattoria)); err != nil {
 		log.Printf("сид: trattoria-tverskaya: %v", err)
 		return
 	}
@@ -387,8 +396,8 @@ func (a *Handlers) topUpLaLunaIfMissing(ctx context.Context, ownerID uuid.UUID) 
 	own := a.ownerIfNoRestaurant(ctx, ownerID)
 	if _, err := a.Pool.Exec(ctx, `
 		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
-		VALUES ($1,'La Luna','Москва, наб. Патриарших прудов, 10','la-luna','Москва','Европейская кухня',$2,$3,'+7 (495) 222-30-02','11:00','23:30','{"contact_email":"kontakt@laluna-demo.rest"}'::jsonb)`,
-		rid, own, demoPhotoLaLuna); err != nil {
+		VALUES ($1,'La Luna','Москва, наб. Патриарших прудов, 10','la-luna','Москва','Европейская кухня',$2,$3,'+7 (495) 222-30-02','11:00','23:30',$4::jsonb)`,
+		rid, own, demoRestaurantCoverURL(DemoSlugLaLuna), demoRestaurantExtraJSONForSeed("kontakt@laluna-demo.rest", DemoSlugLaLuna)); err != nil {
 		log.Printf("сид: la-luna: %v", err)
 		return
 	}
@@ -468,8 +477,8 @@ func (a *Handlers) topUpSakuraIfMissing(ctx context.Context, ownerID uuid.UUID) 
 	own := a.ownerIfNoRestaurant(ctx, ownerID)
 	if _, err := a.Pool.Exec(ctx, `
 		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
-		VALUES ($1,'Сакура Лайт','Москва, ул. Покровка, 3','sakura-lite','Москва','Японская кухня',$2,$3,'+7 (495) 333-40-03','12:00','23:00','{"contact_email":"info@sakura-demo.rest"}'::jsonb)`,
-		rid, own, demoPhotoSakura); err != nil {
+		VALUES ($1,'Сакура Лайт','Москва, ул. Покровка, 3','sakura-lite','Москва','Японская кухня',$2,$3,'+7 (495) 333-40-03','12:00','23:00',$4::jsonb)`,
+		rid, own, demoRestaurantCoverURL(DemoSlugSakura), demoRestaurantExtraJSONForSeed("info@sakura-demo.rest", DemoSlugSakura)); err != nil {
 		log.Printf("сид: sakura-lite: %v", err)
 		return
 	}
@@ -547,12 +556,12 @@ func (a *Handlers) topUpBellaVistaIfMissing(ctx context.Context, ownerID uuid.UU
 	own := a.ownerIfNoRestaurant(ctx, ownerID)
 	if _, err := a.Pool.Exec(ctx, `
 		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
-		VALUES ($1,'Bella Vista','Москва, Смоленская пл., 6','bella-vista','Москва','Итальянская кухня в центре Москвы',$2,$3,'+7 (495) 444-50-04','10:00','00:00','{"contact_email":"ciao@bellavista-demo.rest"}'::jsonb)`,
-		rid, own, demoPhotoBella); err != nil {
+		VALUES ($1,'Bella Vista','Москва, Смоленская пл., 6','bella-vista','Москва','Итальянская кухня в центре Москвы',$2,$3,'+7 (495) 444-50-04','10:00','00:00',$4::jsonb)`,
+		rid, own, demoRestaurantCoverURL(DemoSlugBella), demoRestaurantExtraJSONForSeed("ciao@bellavista-demo.rest", DemoSlugBella)); err != nil {
 		log.Printf("сид: bella-vista: %v", err)
 		return
 	}
-	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Зал Bella Vista')`, hid, rid)
+	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Основной зал')`, hid, rid)
 	wallsBella := `{"walls":[{"x1":0,"y1":0,"x2":880,"y2":0},{"x1":880,"y1":0,"x2":880,"y2":600},{"x1":880,"y1":600,"x2":0,"y2":600},{"x1":0,"y1":600,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Панорама","x":40,"y":36,"w":160,"h":28}]}`
 	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hid, wallsBella)
 	bellaTables := []struct {
@@ -585,7 +594,7 @@ func (a *Handlers) patchBellaVistaHallTablesMenu(ctx context.Context, rid uuid.U
 	var hid uuid.UUID
 	if hc == 0 {
 		hid = uuid.New()
-		_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Зал Bella Vista')`, hid, rid)
+		_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Основной зал')`, hid, rid)
 		wallsBella := `{"walls":[{"x1":0,"y1":0,"x2":880,"y2":0},{"x1":880,"y1":0,"x2":880,"y2":600},{"x1":880,"y1":600,"x2":0,"y2":600},{"x1":0,"y1":600,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Панорама","x":40,"y":36,"w":160,"h":28}]}`
 		_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hid, wallsBella)
 	} else if tc == 0 {

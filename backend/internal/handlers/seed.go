@@ -85,16 +85,16 @@ func (a *Handlers) seedBase(ctx context.Context) {
 	rid4 := uuid.New()
 	_, _ = a.Pool.Exec(ctx, `
 		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
-		VALUES ($1,'Траттория Тверская','Москва, ул. Тверская, 12','trattoria-tverskaya','Москва','Итальянская кухня и вино',$2,$3,'+7 (495) 111-20-01','10:00','23:00','{"contact_email":"hello@trattoria-demo.rest"}'::jsonb)`, rid, owner1ID, demoPhotoTrattoria)
+		VALUES ($1,'Траттория Тверская','Москва, ул. Тверская, 12','trattoria-tverskaya','Москва','Итальянская кухня и вино',$2,$3,'+7 (495) 111-20-01','10:00','23:00',$4::jsonb)`, rid, owner1ID, demoRestaurantCoverURL(DemoSlugTrattoria), demoRestaurantExtraJSONForSeed("hello@trattoria-demo.rest", DemoSlugTrattoria))
 	_, _ = a.Pool.Exec(ctx, `
 		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
-		VALUES ($1,'La Luna','Москва, наб. Патриарших прудов, 10','la-luna','Москва','Европейская кухня',$2,$3,'+7 (495) 222-30-02','11:00','23:30','{"contact_email":"kontakt@laluna-demo.rest"}'::jsonb)`, rid2, owner2ID, demoPhotoLaLuna)
+		VALUES ($1,'La Luna','Санкт-Петербург, наб. реки Фонтанки, 20','la-luna','Санкт-Петербург','Европейская кухня',$2,$3,'+7 (812) 222-30-02','11:00','23:30',$4::jsonb)`, rid2, owner2ID, demoRestaurantCoverURL(DemoSlugLaLuna), demoRestaurantExtraJSONForSeed("kontakt@laluna-demo.rest", DemoSlugLaLuna))
 	_, _ = a.Pool.Exec(ctx, `
 		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
-		VALUES ($1,'Сакура Лайт','Москва, ул. Покровка, 3','sakura-lite','Москва','Японская кухня',$2,$3,'+7 (495) 333-40-03','12:00','23:00','{"contact_email":"info@sakura-demo.rest"}'::jsonb)`, rid3, owner3ID, demoPhotoSakura)
+		VALUES ($1,'Сакура Лайт','Москва, ул. Покровка, 3','sakura-lite','Москва','Японская кухня и роллы',$2,$3,'+7 (495) 333-40-03','12:00','23:00',$4::jsonb)`, rid3, owner3ID, demoRestaurantCoverURL(DemoSlugSakura), demoRestaurantExtraJSONForSeed("info@sakura-demo.rest", DemoSlugSakura))
 	_, _ = a.Pool.Exec(ctx, `
 		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
-		VALUES ($1,'Bella Vista','Москва, Смоленская пл., 6','bella-vista','Москва','Итальянская кухня в центре Москвы',$2,$3,'+7 (495) 444-50-04','10:00','00:00','{"contact_email":"ciao@bellavista-demo.rest"}'::jsonb)`, rid4, owner4ID, demoPhotoBella)
+		VALUES ($1,'Bella Vista','Москва, Смоленская пл., 6','bella-vista','Москва','Итальянская кухня в центре Москвы',$2,$3,'+7 (495) 444-50-04','10:00','00:00',$4::jsonb)`, rid4, owner4ID, demoRestaurantCoverURL(DemoSlugBella), demoRestaurantExtraJSONForSeed("ciao@bellavista-demo.rest", DemoSlugBella))
 
 	hidMain := uuid.New()
 	hidTerrace := uuid.New()
@@ -105,7 +105,7 @@ func (a *Handlers) seedBase(ctx context.Context) {
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Летняя терраса')`, hidTerrace, rid)
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Главный зал')`, hidLuna, rid2)
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Зал татами')`, hidSakura, rid3)
-	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Зал Bella Vista')`, hidBella, rid4)
+	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Основной зал')`, hidBella, rid4)
 
 	wallsMain := `{"walls":[{"x1":0,"y1":0,"x2":920,"y2":0},{"x1":920,"y1":0,"x2":920,"y2":640},{"x1":920,"y1":640,"x2":0,"y2":640},{"x1":0,"y1":640,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Панорамные окна","x":60,"y":40,"w":200,"h":32},{"type":"window_band","x":0,"y":0,"w":920,"h":24}]}`
 	wallsTerr := `{"walls":[{"x1":0,"y1":0,"x2":720,"y2":0},{"x1":720,"y1":0,"x2":720,"y2":480},{"x1":720,"y1":480,"x2":0,"y2":480},{"x1":0,"y1":480,"x2":0,"y2":0}],"decorations":[]}`
@@ -299,18 +299,19 @@ func (a *Handlers) seedMenuTrattoria(ctx context.Context, restaurantID uuid.UUID
 		cat uuid.UUID
 		n   string
 		pr  int
+		img string
 	}{
-		{subPizza, "Маргарита", 69000},
-		{subPizza, "Четыре сыра", 89000},
-		{catFood, "Паста карбонара", 65000},
-		{catFood, "Тирамису", 42000},
-		{catDrink, "Домашний лимонад", 29000},
-		{catDrink, "Эспрессо", 18000},
+		{subPizza, "Маргарита", 69000, "/demo/dishes/margarita.webp"},
+		{subPizza, "Четыре сыра", 89000, "/demo/dishes/4cheese.webp"},
+		{catFood, "Паста карбонара", 65000, "/demo/dishes/karbonara.jpg"},
+		{catFood, "Тирамису", 42000, "/demo/dishes/tiramisu.jpg"},
+		{catDrink, "Домашний лимонад", 29000, "/demo/dishes/lemonade.webp"},
+		{catDrink, "Эспрессо", 18000, "/demo/dishes/espresso.jpg"},
 	}
-	for i, it := range items {
+	for _, it := range items {
 		_, _ = a.Pool.Exec(ctx, `
 			INSERT INTO menu_items (restaurant_id, category_id, name, price_kopecks, sort_order, image_url)
-			VALUES ($1,$2,$3,$4,0,$5)`, restaurantID, it.cat, it.n, it.pr, demoDishImageAt(i))
+			VALUES ($1,$2,$3,$4,0,$5)`, restaurantID, it.cat, it.n, it.pr, it.img)
 	}
 }
 
@@ -324,17 +325,18 @@ func (a *Handlers) seedMenuLaLuna(ctx context.Context, restaurantID uuid.UUID) {
 		cat uuid.UUID
 		n   string
 		pr  int
+		img string
 	}{
-		{catMain, "Утиная грудка с вишнёвым соусом", 78000},
-		{catMain, "Ризотто с белыми грибами", 72000},
-		{catMain, "Тартар из лосося", 69000},
-		{catBar, "Капучино", 22000},
-		{catBar, "Домашний лимонад", 31000},
+		{catMain, "Утиная грудка с вишнёвым соусом", 78000, "/demo/dishes/duck.jpg"},
+		{catMain, "Ризотто с белыми грибами", 72000, "/demo/dishes/risotto.webp"},
+		{catMain, "Тартар из лосося", 69000, "/demo/dishes/tartar.webp"},
+		{catBar, "Капучино", 22000, "/demo/dishes/cupuchino.jpg"},
+		{catBar, "Домашний лимонад", 31000, "/demo/dishes/lemonade.webp"},
 	}
-	for i, it := range items {
+	for _, it := range items {
 		_, _ = a.Pool.Exec(ctx, `
 			INSERT INTO menu_items (restaurant_id, category_id, name, price_kopecks, sort_order, image_url)
-			VALUES ($1,$2,$3,$4,0,$5)`, restaurantID, it.cat, it.n, it.pr, demoDishImageAt(i+3))
+			VALUES ($1,$2,$3,$4,0,$5)`, restaurantID, it.cat, it.n, it.pr, it.img)
 	}
 }
 
@@ -348,17 +350,18 @@ func (a *Handlers) seedMenuSakura(ctx context.Context, restaurantID uuid.UUID) {
 		cat uuid.UUID
 		n   string
 		pr  int
+		img string
 	}{
-		{catRoll, "Филадельфия", 59000},
-		{catRoll, "Калифорния", 52000},
-		{catHot, "Рамен с курицей", 48000},
-		{catHot, "Тяхан с морепродуктами", 55000},
-		{catHot, "Мисо-суп", 29000},
+		{catRoll, "Филадельфия", 59000, "/demo/dishes/filadelfia.jpeg"},
+		{catRoll, "Калифорния", 52000, "/demo/dishes/california.webp"},
+		{catHot, "Рамен с курицей", 48000, "/demo/dishes/ramen.webp"},
+		{catHot, "Тяхан с морепродуктами", 55000, "/demo/dishes/tyahan.jpg"},
+		{catHot, "Мисо-суп", 29000, "/demo/dishes/miso.jpg"},
 	}
-	for i, it := range items {
+	for _, it := range items {
 		_, _ = a.Pool.Exec(ctx, `
 			INSERT INTO menu_items (restaurant_id, category_id, name, price_kopecks, sort_order, image_url)
-			VALUES ($1,$2,$3,$4,0,$5)`, restaurantID, it.cat, it.n, it.pr, demoDishImageAt(i+8))
+			VALUES ($1,$2,$3,$4,0,$5)`, restaurantID, it.cat, it.n, it.pr, it.img)
 	}
 }
 
@@ -379,25 +382,26 @@ func (a *Handlers) seedMenuBellaVista(ctx context.Context, restaurantID uuid.UUI
 		n   string
 		d   string
 		pr  int
+		img string
 	}{
-		{catAntipasti, "Брускетта с томатами и базиликом", "Свежий хлеб, чеснок, оливковое масло", 42000},
-		{catAntipasti, "Вителло тоннато", "Телятина, соус тоннато, каперсы", 69000},
-		{catAntipasti, "Капрезе", "Моцарелла буффала, томаты", 55000},
-		{catPasta, "Спагетти карбонара", "Гуанчиале, яйцо, пекорино", 72000},
-		{catPasta, "Тальятелле с белыми грибами", "Сливки, пармезан", 78000},
-		{catPasta, "Ризотто с шафраном и морепродуктами", "", 89000},
-		{catSecondi, "Оссобуко по-милански", "Тушёная голень, гремолата", 125000},
-		{catSecondi, "Рыба дня на гриле", "Сезонные овощи", 98000},
-		{catDolci, "Панна котта с ягодами", "", 39000},
-		{catDolci, "Тирамису", "Маскарпоне, кофе, какао", 45000},
-		{catBevande, "Эспрессо", "", 22000},
-		{catBevande, "Апероль-спритц", "", 49000},
-		{catBevande, "Минеральная вода 0,75 л", "", 35000},
+		{catAntipasti, "Брускетта с томатами и базиликом", "Свежий хлеб, чеснок, оливковое масло", 42000, "/demo/dishes/bruskette.webp"},
+		{catAntipasti, "Вителло тоннато", "Телятина, соус тоннато, каперсы", 69000, "/demo/dishes/vitello.webp"},
+		{catAntipasti, "Капрезе", "Моцарелла буффала, томаты", 55000, "/demo/dishes/kaprese.jpg"},
+		{catPasta, "Спагетти карбонара", "Гуанчиале, яйцо, пекорино", 72000, "/demo/dishes/karbonara.jpg"},
+		{catPasta, "Тальятелле с белыми грибами", "Сливки, пармезан", 78000, "/demo/dishes/tailitely.jpg"},
+		{catPasta, "Ризотто с шафраном и морепродуктами", "", 89000, "/demo/dishes/risotto.webp"},
+		{catSecondi, "Оссобуко по-милански", "Тушёная голень, гремолата", 125000, "/demo/dishes/ossobuko.webp"},
+		{catSecondi, "Рыба дня на гриле", "Сезонные овощи", 98000, "/demo/dishes/fish.jpg"},
+		{catDolci, "Панна котта с ягодами", "", 39000, "/demo/dishes/pannakota.webp"},
+		{catDolci, "Тирамису", "Маскарпоне, кофе, какао", 45000, "/demo/dishes/tiramisu.jpg"},
+		{catBevande, "Эспрессо", "", 22000, "/demo/dishes/espresso.jpg"},
+		{catBevande, "Апероль-спритц", "", 49000, "/demo/dishes/aperol.jpg"},
+		{catBevande, "Минеральная вода 0,75 л", "", 35000, "/demo/dishes/mineralwater.webp"},
 	}
-	for i, it := range items {
+	for _, it := range items {
 		_, _ = a.Pool.Exec(ctx, `
 			INSERT INTO menu_items (restaurant_id, category_id, name, description, price_kopecks, sort_order, image_url)
-			VALUES ($1,$2,$3,$4,$5,0,$6)`, restaurantID, it.cat, it.n, it.d, it.pr, demoDishImageAt(i+12))
+			VALUES ($1,$2,$3,$4,$5,0,$6)`, restaurantID, it.cat, it.n, it.d, it.pr, it.img)
 	}
 }
 

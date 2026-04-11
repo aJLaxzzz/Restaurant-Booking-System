@@ -86,7 +86,7 @@ export function AdminWaitersPanel() {
           <tbody>
             {rows.map((w) => {
               const list = w.today_reservations ?? [];
-              const scheduled = w.scheduled_today !== false;
+              const scheduled = w.scheduled_today === true;
               const brief = !scheduled
                 ? 'выходной'
                 : list.length === 0
@@ -127,6 +127,7 @@ export function AdminWaitersPanel() {
       {rows.length > 0 && (
         <AdminWaiterWorkCalendar
           waiters={rows.map((w) => ({ id: w.id, full_name: w.full_name, email: w.email }))}
+          onSaved={() => void load()}
         />
       )}
     </>

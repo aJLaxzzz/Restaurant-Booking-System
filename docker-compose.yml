@@ -1,19 +1,25 @@
-# Инфраструктура + микросервисы за Nginx (шлюз на порту 8080).
-# Монолит локально: cd backend && go run ./cmd/api (порт по умолчанию 8080 — не поднимайте gateway одновременно).
+# Монолит API + Postgres + Redis + RabbitMQ + фронт (nginx: SPA + прокси /api и /ws).
+# Плюс микросервисы + шлюз nginx:8080 для scripts/dev-restart.sh --gateway (см. nginx/nginx.conf).
+# Запуск из корня репозитория: docker compose up --build
+# Сайт: http://localhost (порт 80). API только внутри сети compose, снаружи — через nginx.
 
-x-common-env: &common-env
-  ADDR: :8080
+x-micro-env: &micro_env
+  ADDR: ":8080"
   DATABASE_URL: postgres://rbs:rbs@postgres:5432/restaurant_booking?sslmode=disable
   REDIS_ADDR: redis:6379
   RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-  JWT_SECRET: dev-secret-change-me-min-32-chars-long!!
-  INTERNAL_SECRET: internal-shared-secret-change
+  JWT_SECRET: docker-dev-jwt-secret-min-32-characters-long!!
   FRONTEND_ORIGIN: http://localhost:5173
-  WEBHOOK_SECRET: webhook-hmac-secret-change
+  PUBLIC_APP_URL: http://localhost:5173
+  INTERNAL_SECRET: internal-ms-shared-secret-change
 
 services:
   postgres:
     image: postgres:16-alpine
+    command:
+      - postgres
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
     environment:
       POSTGRES_USER: rbs
       POSTGRES_PASSWORD: rbs
@@ -21,12 +27,13 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - rbs_pgdata:/var/lib/postgresql/data
+      - ./deploy/docker-pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rbs -d restaurant_booking"]
-      interval: 3s
+      interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -45,13 +52,21 @@ services:
       dockerfile: Dockerfile
       args:
         SERVICE: auth
-    environment:
-      <<: *common-env
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
+    environment:
+      <<: *micro_env
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 45s
 
   hall:
     build:
@@ -59,14 +74,21 @@ services:
       dockerfile: Dockerfile
       args:
         SERVICE: hall
-    environment:
-      <<: *common-env
-      HALL_SERVICE_URL: ""
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
+    environment:
+      <<: *micro_env
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 45s
 
   reservation:
     build:
@@ -74,9 +96,6 @@ services:
       dockerfile: Dockerfile
       args:
         SERVICE: reservation
-    environment:
-      <<: *common-env
-      HALL_SERVICE_URL: http://hall:8080
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,7 +104,21 @@ services:
       rabbitmq:
         condition: service_started
       hall:
-        condition: service_started
+        condition: service_healthy
+    environment:
+      <<: *micro_env
+      HALL_SERVICE_URL: http://hall:8080
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - rbs_uploads:/data/uploads
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 60s
 
   payment:
     build:
@@ -93,41 +126,24 @@ services:
       dockerfile: Dockerfile
       args:
         SERVICE: payment
-    environment:
-      <<: *common-env
-      HALL_SERVICE_URL: http://hall:8080
-      PUBLIC_APP_URL: http://localhost:8080
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
-      rabbitmq:
-        condition: service_started
-      hall:
-        condition: service_started
-
-  notify-worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      args:
-        SERVICE: notify-worker
     environment:
-      <<: *common-env
-      ADDR: :8080
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_started
+      <<: *micro_env
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 45s
 
   nginx:
-    image: nginx:alpine
-    ports:
-      - "8080:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    image: nginx:1.27-alpine
     depends_on:
       auth:
         condition: service_healthy
@@ -137,6 +153,47 @@ services:
         condition: service_healthy
       payment:
         condition: service_healthy
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8080:80"
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        SERVICE: api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+    environment:
+      ADDR: ":8080"
+      DATABASE_URL: postgres://rbs:rbs@postgres:5432/restaurant_booking?sslmode=disable
+      REDIS_ADDR: redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      JWT_SECRET: docker-dev-jwt-secret-min-32-characters-long!!
+      FRONTEND_ORIGIN: http://localhost
+      PUBLIC_APP_URL: http://localhost
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - rbs_uploads:/data/uploads
+    expose:
+      - "8080"
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - api
+    ports:
+      - "80:80"
 
 volumes:
-  pgdata:
+  rbs_pgdata:
+  rbs_uploads:

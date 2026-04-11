@@ -88,13 +88,24 @@ type layoutTable struct {
 	Status      string  `json:"status"`
 }
 
-// layoutJSON: walls — сегменты {x1,y1,x2,y2}; decorations — zone_label, window_band, door/window (сегмент), zone (rect + label).
+// layoutJSON: walls — сегменты {x1,y1,x2,y2}; decorations — zone_label, window_band, door/window (сегмент), zone, zone_polygon, fixture.
+type roomInsetJSON struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	W float64 `json:"w"`
+	H float64 `json:"h"`
+}
+
 type layoutJSON struct {
 	Tables        []layoutTable          `json:"tables"`
 	Walls         []map[string]float64   `json:"walls"`
+	WallSegments  []map[string]any       `json:"wall_segments,omitempty"`
+	Rooms         []map[string]any       `json:"rooms,omitempty"`
+	ChairLayout   map[string]any         `json:"chair_layout,omitempty"`
 	Decorations   []map[string]any       `json:"decorations"`
 	CanvasWidth   float64                `json:"canvas_width"`
 	CanvasHeight  float64                `json:"canvas_height"`
+	RoomInset     *roomInsetJSON         `json:"room_inset,omitempty"`
 }
 
 func (a *Handlers) handleLayoutGet(w http.ResponseWriter, r *http.Request) {
@@ -187,10 +198,23 @@ func (a *Handlers) handleLayoutGet(w http.ResponseWriter, r *http.Request) {
 	if lj.CanvasHeight > 0 {
 		ch = lj.CanvasHeight
 	}
-	a.json(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"tables": tables, "walls": walls, "decorations": lj.Decorations,
 		"canvas_width": cw, "canvas_height": ch,
-	})
+	}
+	if lj.RoomInset != nil {
+		out["room_inset"] = lj.RoomInset
+	}
+	if len(lj.WallSegments) > 0 {
+		out["wall_segments"] = lj.WallSegments
+	}
+	if len(lj.Rooms) > 0 {
+		out["rooms"] = lj.Rooms
+	}
+	if len(lj.ChairLayout) > 0 {
+		out["chair_layout"] = lj.ChairLayout
+	}
+	a.json(w, http.StatusOK, out)
 }
 
 // handleHallAvailability — столы, подходящие по вместимости и без пересечения по времени.
@@ -268,12 +292,42 @@ func (a *Handlers) handleLayoutPut(w http.ResponseWriter, r *http.Request) {
 	if body.Decorations == nil {
 		body.Decorations = []map[string]any{}
 	}
+	var exLayout layoutJSON
+	var exRaw []byte
+	_ = a.Pool.QueryRow(r.Context(), `SELECT layout_json FROM halls WHERE id=$1`, hallID).Scan(&exRaw)
+	if len(exRaw) > 0 && exRaw[0] != '[' {
+		_ = json.Unmarshal(exRaw, &exLayout)
+	}
+	if body.RoomInset == nil && exLayout.RoomInset != nil {
+		body.RoomInset = exLayout.RoomInset
+	}
+	if body.WallSegments == nil && len(exLayout.WallSegments) > 0 {
+		body.WallSegments = exLayout.WallSegments
+	}
+	if body.Rooms == nil && len(exLayout.Rooms) > 0 {
+		body.Rooms = exLayout.Rooms
+	}
+	if body.ChairLayout == nil && len(exLayout.ChairLayout) > 0 {
+		body.ChairLayout = exLayout.ChairLayout
+	}
 	layoutObj := map[string]any{"tables": body.Tables, "walls": body.Walls, "decorations": body.Decorations}
 	if body.CanvasWidth > 0 {
 		layoutObj["canvas_width"] = body.CanvasWidth
 	}
 	if body.CanvasHeight > 0 {
 		layoutObj["canvas_height"] = body.CanvasHeight
+	}
+	if body.RoomInset != nil {
+		layoutObj["room_inset"] = body.RoomInset
+	}
+	if body.WallSegments != nil {
+		layoutObj["wall_segments"] = body.WallSegments
+	}
+	if body.Rooms != nil {
+		layoutObj["rooms"] = body.Rooms
+	}
+	if body.ChairLayout != nil {
+		layoutObj["chair_layout"] = body.ChairLayout
 	}
 	b, _ := json.Marshal(layoutObj)
 	tx, err := a.Pool.Begin(r.Context())

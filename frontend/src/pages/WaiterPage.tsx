@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { format, parseISO } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { useAuth } from '../auth';
 import { reservationStatusLabelRu } from '../utils/reservationStatus';
+import { resolvePublicImageUrl } from '../utils/publicAssetUrl';
 
 type Row = {
   reservation_id: string;
@@ -226,7 +227,11 @@ function WaiterOrderPanel({
                   <button type="button" className="waiter-menu-card-hit" onClick={() => void addLine(m.id)}>
                     <div
                       className={`public-menu-card-visual${m.image_url ? '' : ' public-menu-card-visual--empty'}`}
-                      style={m.image_url ? { backgroundImage: `url(${m.image_url})` } : undefined}
+                      style={
+                        m.image_url
+                          ? { backgroundImage: `url(${resolvePublicImageUrl(m.image_url)})` }
+                          : undefined
+                      }
                       aria-hidden
                     />
                     <div className="public-menu-card-body">
@@ -261,20 +266,34 @@ export default function WaiterPage() {
   const [noteText, setNoteText] = useState('');
   const [msg, setMsg] = useState('');
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const { data } = await api.get<{ scheduled_today?: boolean; tables?: Row[] } | Row[]>('/waiter/my-tables');
     if (data && typeof data === 'object' && !Array.isArray(data) && 'tables' in data) {
-      setScheduledToday(data.scheduled_today !== false);
+      setScheduledToday(data.scheduled_today === true);
       setRows(Array.isArray(data.tables) ? data.tables : []);
     } else {
-      setScheduledToday(true);
-      setRows(Array.isArray(data) ? data : []);
+      const arr = Array.isArray(data) ? data : [];
+      setRows(arr);
+      setScheduledToday(arr.length > 0);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
+
+  useEffect(() => {
+    if (user?.role !== 'waiter') return;
+    const tick = window.setInterval(() => void load(), 25000);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.clearInterval(tick);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [user?.role, load]);
 
   const start = async (id: string) => {
     await api.post(`/reservations/${id}/start-service`, {});

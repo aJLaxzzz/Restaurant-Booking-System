@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
+import { resolvePublicImageUrl } from '../utils/publicAssetUrl';
 
 type RestaurantDetail = {
   id: string;
@@ -9,6 +10,7 @@ type RestaurantDetail = {
   city: string;
   description: string;
   photo_url: string;
+  photo_gallery_urls?: string[];
   address?: string;
   phone?: string;
   opens_at?: string;
@@ -41,6 +43,15 @@ function formatRub(kopecks: number) {
     currency: 'RUB',
     maximumFractionDigits: 0,
   });
+}
+
+function displayRestaurantName(v: { name?: string; slug?: string } | null | undefined) {
+  if (!v) return 'Ресторан';
+  const n = (v.name || '').trim();
+  if (n) return n;
+  const s = (v.slug || '').trim();
+  if (s) return s.replace(/-/g, ' ');
+  return 'Ресторан';
 }
 
 export default function RestaurantPage() {
@@ -76,6 +87,40 @@ export default function RestaurantPage() {
       }
     })();
   }, [id]);
+
+  const galleryUrls = useMemo(() => {
+    if (!venue) return [];
+    if (Array.isArray(venue.photo_gallery_urls) && venue.photo_gallery_urls.length > 0) {
+      return venue.photo_gallery_urls.filter((u) => typeof u === 'string' && u.trim() !== '');
+    }
+    const g = venue.extra_json?.photo_gallery;
+    if (!Array.isArray(g)) return [];
+    return g.filter((x): x is string => typeof x === 'string' && x.trim() !== '');
+  }, [venue]);
+
+  /** Миниатюры: галерея; если обложка не входит в галерею — добавляем её первой. */
+  const thumbUrls = useMemo(() => {
+    if (!venue) return [];
+    const cover = (venue.photo_url || '').trim();
+    if (!cover) return galleryUrls;
+    if (galleryUrls.some((u) => u === cover)) return galleryUrls;
+    return [cover, ...galleryUrls];
+  }, [venue, galleryUrls]);
+
+  const [heroImageUrl, setHeroImageUrl] = useState<string>('');
+
+  useEffect(() => {
+    if (!venue) {
+      setHeroImageUrl('');
+      return;
+    }
+    const cover = (venue.photo_url || '').trim();
+    if (thumbUrls.length === 0) {
+      setHeroImageUrl(cover);
+      return;
+    }
+    setHeroImageUrl(cover || thumbUrls[0]);
+  }, [venue?.id, venue?.photo_url, thumbUrls]);
 
   const sections = useMemo(() => {
     if (!menu) return [];
@@ -124,23 +169,21 @@ export default function RestaurantPage() {
       <nav className="restaurant-public-breadcrumb">
         <Link to="/">Главная</Link>
         <span aria-hidden> / </span>
-        <span>{venue?.name ?? 'Меню'}</span>
+        <span>{venue ? displayRestaurantName(venue) : 'Меню'}</span>
       </nav>
 
       <header className="restaurant-public-hero">
         <div
-          className={`restaurant-public-cover${venue?.photo_url ? '' : ' restaurant-public-cover--placeholder'}`}
+          className={`restaurant-public-cover${heroImageUrl ? '' : ' restaurant-public-cover--placeholder'}`}
           style={
-            venue?.photo_url
-              ? { backgroundImage: `url(${venue.photo_url})` }
-              : undefined
+            heroImageUrl ? { backgroundImage: `url(${resolvePublicImageUrl(heroImageUrl)})` } : undefined
           }
           role="img"
-          aria-label=""
+          aria-label={venue ? `Фото: ${displayRestaurantName(venue)}` : 'Фото ресторана'}
         />
         <div className="restaurant-public-headline">
           <p className="restaurant-city">{venue?.city}</p>
-          <h1>{venue?.name}</h1>
+          <h1>{displayRestaurantName(venue)}</h1>
           {venue?.description ? <p className="restaurant-public-lead">{venue.description}</p> : null}
           {venue?.address ? (
             <p className="muted restaurant-public-meta restaurant-public-address">{venue.address}</p>
@@ -172,6 +215,31 @@ export default function RestaurantPage() {
         </div>
       </header>
 
+      {thumbUrls.length > 0 && (
+        <section className="restaurant-public-gallery-wrap" aria-label="Фотографии ресторана">
+          <h2 className="restaurant-public-gallery-title">Фото</h2>
+          <p className="muted compact" style={{ margin: 0 }}>
+            Нажмите миниатюру, чтобы показать снимок в блоке выше.
+          </p>
+          <div className="restaurant-public-gallery" role="list">
+            {thumbUrls.map((src, gi) => {
+              const active = src === heroImageUrl;
+              return (
+                <button
+                  key={`${gi}-${src}`}
+                  type="button"
+                  className={`restaurant-public-gallery-item${active ? ' restaurant-public-gallery-item--active' : ''}`}
+                  style={{ backgroundImage: `url(${resolvePublicImageUrl(src)})` }}
+                  aria-pressed={active}
+                  aria-label={`Показать фото ${gi + 1} из ${thumbUrls.length}`}
+                  onClick={() => setHeroImageUrl(src)}
+                />
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <section className="restaurant-public-menu" aria-labelledby="menu-heading">
         <h2 id="menu-heading" className="restaurant-public-menu-title">
           Меню
@@ -193,7 +261,7 @@ export default function RestaurantPage() {
                           className={`public-menu-card-visual${it.image_url ? '' : ' public-menu-card-visual--empty'}`}
                           style={
                             it.image_url
-                              ? { backgroundImage: `url(${it.image_url})` }
+                              ? { backgroundImage: `url(${resolvePublicImageUrl(it.image_url)})` }
                               : undefined
                           }
                           aria-hidden
@@ -220,7 +288,7 @@ export default function RestaurantPage() {
                               className={`public-menu-card-visual${it.image_url ? '' : ' public-menu-card-visual--empty'}`}
                               style={
                                 it.image_url
-                                  ? { backgroundImage: `url(${it.image_url})` }
+                                  ? { backgroundImage: `url(${resolvePublicImageUrl(it.image_url)})` }
                                   : undefined
                               }
                               aria-hidden

@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { api } from '../api';
+import { resolvePublicImageUrl } from '../utils/publicAssetUrl';
 
 type Restaurant = {
   id: string;
@@ -18,6 +19,14 @@ type Restaurant = {
 
 function scrollToVenues() {
   document.getElementById('home-venues')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function displayVenueName(r: { name: string; slug?: string }) {
+  const n = (r.name || '').trim();
+  if (n) return n;
+  const s = (r.slug || '').trim();
+  if (s) return s.replace(/-/g, ' ');
+  return 'Ресторан';
 }
 
 export default function Home() {
@@ -41,19 +50,29 @@ export default function Home() {
     return venues.filter((v) => (v.city || '').trim() === cityFilter);
   }, [venues, cityFilter]);
 
-  useEffect(() => {
-    void (async () => {
-      setLoading(true);
-      try {
-        const { data } = await api.get<Restaurant[]>('/restaurants');
-        setVenues(Array.isArray(data) ? data : []);
-      } catch {
-        setVenues([]);
-      } finally {
-        setLoading(false);
-      }
-    })();
+  const loadVenues = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get<Restaurant[]>('/restaurants');
+      setVenues(Array.isArray(data) ? data : []);
+    } catch {
+      setVenues([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadVenues();
+  }, [location.key, loadVenues]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void loadVenues();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [loadVenues]);
 
   useLayoutEffect(() => {
     if (location.hash === '#home-venues') {
@@ -193,8 +212,9 @@ export default function Home() {
           )}
         </header>
 
-        {!loading && cities.length > 1 && (
+        {!loading && venues.length > 0 && (
           <div className="home-city-filter" role="group" aria-label="Фильтр по городу">
+            <span className="home-city-filter-label muted">Город</span>
             <button
               type="button"
               className={!cityFilter ? 'home-city-chip home-city-chip--active' : 'home-city-chip'}
@@ -202,16 +222,20 @@ export default function Home() {
             >
               Все города
             </button>
-            {cities.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className={cityFilter === c ? 'home-city-chip home-city-chip--active' : 'home-city-chip'}
-                onClick={() => setCityFilter(c)}
-              >
-                {c}
-              </button>
-            ))}
+            {cities.length > 0 ? (
+              cities.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={cityFilter === c ? 'home-city-chip home-city-chip--active' : 'home-city-chip'}
+                  onClick={() => setCityFilter(c)}
+                >
+                  {c}
+                </button>
+              ))
+            ) : (
+              <span className="muted compact">город не указан</span>
+            )}
           </div>
         )}
 
@@ -246,19 +270,19 @@ export default function Home() {
                     style={
                       r.photo_url
                         ? {
-                            backgroundImage: `url(${r.photo_url})`,
+                            backgroundImage: `url(${resolvePublicImageUrl(r.photo_url)})`,
                           }
                         : undefined
                     }
                   />
                   <div className="home-venue-card-shade" />
-                  <span className="home-venue-badge">{r.city}</span>
+                  <span className="home-venue-badge">{(r.city || '').trim() || '—'}</span>
                   <span className="home-venue-arrow" aria-hidden>
                     →
                   </span>
                 </div>
                 <div className="home-venue-card-body">
-                  <h3 className="home-venue-name">{r.name}</h3>
+                  <h3 className="home-venue-name">{displayVenueName(r)}</h3>
                   {r.address ? (
                     <p className="home-venue-line muted compact">{r.address}</p>
                   ) : null}

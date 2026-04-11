@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import axios from 'axios';
 import { api } from '../api';
+import { resolvePublicImageUrl } from '../utils/publicAssetUrl';
 
 function menuLoadErrorMessage(e: unknown): string {
   if (axios.isAxiosError(e)) {
@@ -159,7 +160,11 @@ export function AdminMenuPositions() {
                 >
                   <div
                     className={`admin-menu-pos-thumb${it.image_url ? '' : ' admin-menu-pos-thumb--empty'}`}
-                    style={it.image_url ? { backgroundImage: `url(${it.image_url})` } : undefined}
+                    style={
+                      it.image_url
+                        ? { backgroundImage: `url(${resolvePublicImageUrl(it.image_url)})` }
+                        : undefined
+                    }
                     aria-hidden
                   />
                   <div className="admin-menu-pos-card-body">

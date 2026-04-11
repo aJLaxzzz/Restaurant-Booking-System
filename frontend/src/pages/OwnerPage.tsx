@@ -5,6 +5,7 @@ import { format, subDays } from 'date-fns';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { normalizeRuPhoneInput, isValidRuPhoneE164 } from '../utils/phone';
+import { resolvePublicImageUrl } from '../utils/publicAssetUrl';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -140,6 +141,8 @@ export default function OwnerPage() {
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [restPhoto, setRestPhoto] = useState<string | null>(null);
+  const [restGallery, setRestGallery] = useState<string[]>([]);
+  const [restGalleryMsg, setRestGalleryMsg] = useState('');
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [staffEmail, setStaffEmail] = useState('');
   const [staffRole, setStaffRole] = useState<'waiter' | 'admin' | 'client'>('waiter');
@@ -198,6 +201,7 @@ export default function OwnerPage() {
   useEffect(() => {
     if (!user?.restaurant_id) {
       setRestPhoto(null);
+      setRestGallery([]);
       setStaff([]);
       return;
     }
@@ -205,6 +209,7 @@ export default function OwnerPage() {
       try {
         const { data } = await api.get<{
           photo_url?: string;
+          photo_gallery_urls?: string[];
           phone?: string;
           opens_at?: string;
           closes_at?: string;
@@ -214,6 +219,11 @@ export default function OwnerPage() {
           extra_json?: Record<string, unknown>;
         }>(`/restaurants/${user.restaurant_id}`);
         setRestPhoto(data.photo_url || null);
+        setRestGallery(
+          Array.isArray(data.photo_gallery_urls)
+            ? data.photo_gallery_urls.filter((u): u is string => typeof u === 'string' && u.trim() !== '')
+            : [],
+        );
         setRestPhone(data.phone ?? '');
         setRestOpens(data.opens_at ?? '');
         setRestCloses(data.closes_at ?? '');
@@ -224,6 +234,7 @@ export default function OwnerPage() {
         setRestContactEmail(typeof em === 'string' ? em : '');
       } catch {
         setRestPhoto(null);
+        setRestGallery([]);
       }
     })();
   }, [user?.restaurant_id]);
@@ -276,6 +287,34 @@ export default function OwnerPage() {
     fd.append('photo', f);
     const { data } = await api.post<{ url: string }>('/upload/restaurant-photo', fd);
     setRestPhoto(data.url);
+  };
+
+  const uploadRestaurantGalleryPhoto = async (f: File | null) => {
+    if (!f) return;
+    setRestGalleryMsg('');
+    try {
+      const fd = new FormData();
+      fd.append('photo', f);
+      const { data } = await api.post<{ url: string }>('/upload/restaurant-photo', fd, {
+        params: { target: 'gallery' },
+      });
+      setRestGallery((prev) => (prev.includes(data.url) ? prev : [...prev, data.url]));
+    } catch (ex: unknown) {
+      const m = ex as { response?: { data?: { error?: string } } };
+      setRestGalleryMsg(m.response?.data?.error || 'Ошибка загрузки');
+    }
+  };
+
+  const removeGalleryItem = async (url: string) => {
+    setRestGalleryMsg('');
+    const next = restGallery.filter((u) => u !== url);
+    try {
+      await api.put('/owner/restaurant', { photo_gallery_urls: next });
+      setRestGallery(next);
+    } catch (ex: unknown) {
+      const m = ex as { response?: { data?: { error?: string } } };
+      setRestGalleryMsg(m.response?.data?.error || 'Ошибка');
+    }
   };
 
   const saveRestaurantContact = async (e: FormEvent) => {
@@ -561,15 +600,47 @@ export default function OwnerPage() {
           </div>
           <div className="card">
             <h2>Фото ресторана</h2>
-            <p className="muted compact">JPEG, PNG или WebP, до 5 МБ. Отображается в каталоге.</p>
+            <p className="muted compact">
+              Обложка — в каталоге на главной. Галерея — на публичной странице ресторана (несколько снимков). JPEG, PNG или
+              WebP, до 5 МБ.
+            </p>
+            <p className="muted compact" style={{ marginTop: 8 }}>
+              Обложка
+            </p>
             {restPhoto && (
-              <img src={restPhoto} alt="" className="owner-photo-preview" style={{ maxWidth: '100%', borderRadius: 8 }} />
+              <img
+                src={resolvePublicImageUrl(restPhoto)}
+                alt=""
+                className="owner-photo-preview"
+                style={{ maxWidth: '100%', borderRadius: 8 }}
+              />
             )}
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
               onChange={(e) => void uploadRestaurantPhoto(e.target.files?.[0] ?? null)}
             />
+            <p className="muted compact" style={{ marginTop: 12 }}>
+              Галерея (страница ресторана)
+            </p>
+            {restGallery.length > 0 && (
+              <ul className="owner-gallery-list">
+                {restGallery.map((url) => (
+                  <li key={url} className="owner-gallery-row">
+                    <img src={resolvePublicImageUrl(url)} alt="" className="owner-gallery-thumb" />
+                    <button type="button" className="secondary btn-sm" onClick={() => void removeGalleryItem(url)}>
+                      Убрать
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(e) => void uploadRestaurantGalleryPhoto(e.target.files?.[0] ?? null)}
+            />
+            {restGalleryMsg && <p className="form-msg">{restGalleryMsg}</p>}
           </div>
           <div className="card">
             <h2>Команда</h2>
