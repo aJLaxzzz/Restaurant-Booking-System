@@ -21,6 +21,24 @@ fi
 echo "==> Docker: postgres, redis, rabbitmq"
 docker compose up -d postgres redis rabbitmq
 
+wait_for_postgres() {
+  echo "==> Ожидание готовности Postgres (pg_isready в контейнере postgres)…"
+  for i in $(seq 1 120); do
+    if docker compose exec -T postgres pg_isready -U rbs -d restaurant_booking >/dev/null 2>&1; then
+      echo "==> Postgres принимает подключения"
+      return 0
+    fi
+    sleep 0.5
+    if [[ "$i" -eq 120 ]]; then
+      echo "Таймаут: Postgres не ответил. Часто это холодный старт Docker Desktop или нехватка ресурсов."
+      echo "Полностью перезапустите приложение Docker, дождитесь «Running», затем снова: bash scripts/dev-restart.sh"
+      echo "Диагностика: docker compose ps && docker compose logs postgres --tail 40"
+      exit 1
+    fi
+  done
+}
+wait_for_postgres
+
 export DATABASE_URL="${DATABASE_URL:-postgres://rbs:rbs@127.0.0.1:5433/restaurant_booking?sslmode=disable}"
 export REDIS_ADDR="${REDIS_ADDR:-127.0.0.1:6379}"
 export RABBITMQ_URL="${RABBITMQ_URL:-amqp://guest:guest@127.0.0.1:5672/}"
