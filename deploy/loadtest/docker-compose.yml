@@ -31,3 +31,19 @@ services:
       GF_INSTALL_PLUGINS: ""
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
+  # k6 в той же сети, что и InfluxDB → запись метрик по http://influxdb:8086 (без host.docker.internal).
+  # Запуск: из корня репозитория bash scripts/run-k6-loadtest.sh (после up -d этого compose).
+  k6:
+    image: grafana/k6:latest
+    profiles:
+      - load
+    depends_on:
+      - influxdb
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../../scripts/k6:/scripts:ro
+    environment:
+      BASE_URL: http://host.docker.internal:8080
+      TOKEN: ""

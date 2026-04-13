@@ -54,22 +54,6 @@
       "value": "http://localhost:8080"
     }
   ],
-  "event": [
-    {
-      "listen": "test",
-      "script": {
-        "exec": [
-          "pm.test('HTTP: нет ошибки 5xx', function () {",
-          "  pm.expect(pm.response.code).to.be.below(500);",
-          "});",
-          "pm.test('Ответ получен быстрее 30 с', function () {",
-          "  pm.expect(pm.response.responseTime).to.be.below(30000);",
-          "});"
-        ],
-        "type": "text/javascript"
-      }
-    }
-  ],
   "item": [
     {
       "name": "Health (service root)",
@@ -90,7 +74,26 @@
             "auth": {
               "type": "noauth"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('GET health: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "GET health diag",
@@ -108,7 +111,26 @@
             "auth": {
               "type": "noauth"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('GET health diag: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -135,7 +157,26 @@
               "mode": "raw",
               "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"Password1\",\n  \"full_name\": \"Test User\",\n  \"phone\": \"+79991234567\",\n  \"register_as_owner\": false\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Register: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Login",
@@ -163,6 +204,12 @@
               "listen": "test",
               "script": {
                 "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
                   "pm.test('Login: статус 200', function () {",
                   "  pm.response.to.have.status(200);",
                   "});",
@@ -174,7 +221,10 @@
                   "try {",
                   "  var j = pm.response.json();",
                   "  if (j && j.access_token) pm.collectionVariables.set('access_token', j.access_token);",
-                  "} catch (e) {}"
+                  "} catch (e) {}",
+                  "pm.test('Login: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
                 ],
                 "type": "text/javascript"
               }
@@ -201,7 +251,26 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Refresh: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Logout",
@@ -230,7 +299,26 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Logout: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Me GET",
@@ -255,7 +343,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Me GET: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Me PUT",
@@ -284,7 +391,26 @@
               "mode": "raw",
               "raw": "{\n  \"full_name\": \"Имя\",\n  \"phone\": \"+79991234567\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Me PUT: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Password",
@@ -313,7 +439,26 @@
               "mode": "raw",
               "raw": "{\n  \"current_password\": \"Password1\",\n  \"new_password\": \"Password2\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Password: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -336,7 +481,26 @@
             "auth": {
               "type": "noauth"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Booking defaults: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Restaurants list",
@@ -354,7 +518,26 @@
             "auth": {
               "type": "noauth"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Restaurants list: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Restaurant by id",
@@ -372,7 +555,26 @@
             "auth": {
               "type": "noauth"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Restaurant by id: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Restaurant menu",
@@ -390,7 +592,26 @@
             "auth": {
               "type": "noauth"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Restaurant menu: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Halls list",
@@ -408,7 +629,26 @@
             "auth": {
               "type": "noauth"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Halls list: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Hall get",
@@ -426,7 +666,26 @@
             "auth": {
               "type": "noauth"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Hall get: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Layout GET",
@@ -444,7 +703,26 @@
             "auth": {
               "type": "noauth"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Layout GET: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Availability",
@@ -462,7 +740,26 @@
             "auth": {
               "type": "noauth"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Availability: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -496,7 +793,26 @@
               "mode": "raw",
               "raw": "{\n  \"canvas_width\": 920,\n  \"canvas_height\": 640,\n  \"tables\": [],\n  \"walls\": [],\n  \"decorations\": []\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Layout PUT: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Table POST",
@@ -525,7 +841,26 @@
               "mode": "raw",
               "raw": "{\n  \"table_number\": 99,\n  \"capacity\": 4,\n  \"x\": 200,\n  \"y\": 200,\n  \"shape\": \"rect\",\n  \"width\": 88,\n  \"height\": 64,\n  \"rotation_deg\": 0\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Table POST: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Table PUT",
@@ -554,7 +889,26 @@
               "mode": "raw",
               "raw": "{\n  \"capacity\": 4,\n  \"x\": 220,\n  \"y\": 220\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Table PUT: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Table DELETE",
@@ -579,7 +933,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Table DELETE: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Table lock",
@@ -608,7 +981,26 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Table lock: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Table unlock",
@@ -633,7 +1025,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Table unlock: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -667,7 +1078,26 @@
               "mode": "raw",
               "raw": "{\n  \"hall_id\": \"{{hall_id}}\",\n  \"table_id\": \"{{table_id}}\",\n  \"start_time\": \"2026-06-01T18:00:00Z\",\n  \"end_time\": \"2026-06-01T20:00:00Z\",\n  \"guest_count\": 2,\n  \"comment\": \"\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Create reservation: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "My reservations",
@@ -692,7 +1122,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('My reservations: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Reservation GET",
@@ -717,7 +1166,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Reservation GET: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Reservation PUT",
@@ -746,7 +1214,26 @@
               "mode": "raw",
               "raw": "{\n  \"guest_count\": 2,\n  \"comment\": \"обновлено\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Reservation PUT: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Reservation cancel",
@@ -771,7 +1258,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Reservation cancel: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Admin reservation create",
@@ -800,7 +1306,26 @@
               "mode": "raw",
               "raw": "{\n  \"hall_id\": \"{{hall_id}}\",\n  \"table_id\": \"{{table_id}}\",\n  \"client_email\": \"client@demo.ru\",\n  \"start_time\": \"2026-06-02T19:00:00Z\",\n  \"end_time\": \"2026-06-02T21:00:00Z\",\n  \"guest_count\": 2\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Admin reservation create: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Admin clients",
@@ -825,7 +1350,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Admin clients: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Admin user lookup",
@@ -850,7 +1394,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Admin user lookup: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Checkin",
@@ -879,7 +1442,26 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Checkin: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Noshow",
@@ -908,7 +1490,26 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Noshow: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Start service",
@@ -937,7 +1538,26 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Start service: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Complete",
@@ -966,7 +1586,26 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Complete: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -996,7 +1635,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Waiters list: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Work dates bulk",
@@ -1021,7 +1679,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Work dates bulk: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Work dates PUT",
@@ -1050,7 +1727,26 @@
               "mode": "raw",
               "raw": "{\n  \"from\": \"2026-04-01\",\n  \"to\": \"2026-04-30\",\n  \"dates\": [\n    \"2026-04-10\",\n    \"2026-04-11\"\n  ]\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Work dates PUT: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -1084,7 +1780,26 @@
               "mode": "raw",
               "raw": "{\n  \"name\": \"Новый зал\",\n  \"address\": \"ул. Пример, 1\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Create restaurant: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Update restaurant",
@@ -1113,7 +1828,26 @@
               "mode": "raw",
               "raw": "{\n  \"name\": \"Имя\",\n  \"description\": \"\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Update restaurant: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Staff assign",
@@ -1142,7 +1876,26 @@
               "mode": "raw",
               "raw": "{\n  \"email\": \"waiter@demo.ru\",\n  \"role\": \"waiter\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Staff assign: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Analytics",
@@ -1167,7 +1920,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Analytics: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Finance",
@@ -1192,7 +1964,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Finance: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Finance export",
@@ -1217,7 +2008,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Finance export: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Staff stats",
@@ -1242,7 +2052,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Staff stats: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Owner users",
@@ -1267,7 +2096,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Owner users: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Owner user create",
@@ -1296,7 +2144,26 @@
               "mode": "raw",
               "raw": "{\n  \"email\": \"newwaiter@demo.ru\",\n  \"password\": \"Password1\",\n  \"full_name\": \"Официант\",\n  \"phone\": \"+79991230001\",\n  \"role\": \"waiter\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Owner user create: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Owner user PUT",
@@ -1325,7 +2192,26 @@
               "mode": "raw",
               "raw": "{\n  \"full_name\": \"Имя\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Owner user PUT: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Settings GET",
@@ -1350,7 +2236,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Settings GET: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Settings PUT",
@@ -1379,7 +2284,26 @@
               "mode": "raw",
               "raw": "{\n  \"booking_open_hour\": 10,\n  \"booking_close_hour\": 23\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Settings PUT: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -1413,7 +2337,26 @@
               "mode": "raw",
               "raw": "{\n  \"email\": \"waiter@demo.ru\",\n  \"role\": \"waiter\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Admin staff assign: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -1443,7 +2386,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('My tables: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Shifts",
@@ -1468,7 +2430,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Shifts: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Note",
@@ -1497,7 +2478,26 @@
               "mode": "raw",
               "raw": "{\n  \"reservation_id\": \"{{reservation_id}}\",\n  \"note\": \"текст\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Note: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -1527,7 +2527,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Order GET: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Order line POST",
@@ -1556,7 +2575,26 @@
               "mode": "raw",
               "raw": "{\n  \"menu_item_id\": \"{{menu_item_id}}\",\n  \"quantity\": 1\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Order line POST: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Order line DELETE",
@@ -1581,7 +2619,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Order line DELETE: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Mark served",
@@ -1610,7 +2667,26 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Mark served: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Checkout",
@@ -1639,7 +2715,26 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Checkout: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Tip checkout",
@@ -1668,7 +2763,26 @@
               "mode": "raw",
               "raw": "{\n  \"amount_kopecks\": 10000\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Tip checkout: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -1698,7 +2812,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Payment GET: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Payment checkout",
@@ -1727,7 +2860,26 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Payment checkout: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Refund",
@@ -1756,7 +2908,26 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Refund: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Simulate pay",
@@ -1785,7 +2956,26 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Simulate pay: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -1815,7 +3005,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('List: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -1845,7 +3054,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Categories list: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Category POST",
@@ -1874,7 +3102,26 @@
               "mode": "raw",
               "raw": "{\n  \"name\": \"Категория\",\n  \"sort_order\": 0\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Category POST: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Category PUT",
@@ -1903,7 +3150,26 @@
               "mode": "raw",
               "raw": "{\n  \"name\": \"Категория\",\n  \"sort_order\": 0\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Category PUT: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Category DELETE",
@@ -1928,7 +3194,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Category DELETE: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Items list",
@@ -1953,7 +3238,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Items list: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Item POST",
@@ -1982,7 +3286,26 @@
               "mode": "raw",
               "raw": "{\n  \"category_id\": \"{{category_id}}\",\n  \"name\": \"Блюдо\",\n  \"description\": \"\",\n  \"price_kopecks\": 50000,\n  \"is_available\": true,\n  \"sort_order\": 0\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Item POST: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Item PUT",
@@ -2011,7 +3334,26 @@
               "mode": "raw",
               "raw": "{\n  \"name\": \"Блюдо\",\n  \"price_kopecks\": 50000\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Item PUT: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Item DELETE",
@@ -2036,7 +3378,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Item DELETE: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -2066,7 +3427,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Owner applications: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Owner approve",
@@ -2095,7 +3475,26 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Owner approve: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Owner reject",
@@ -2124,7 +3523,26 @@
               "mode": "raw",
               "raw": "{\n  \"reason\": \"нет\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Owner reject: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Restaurants",
@@ -2149,7 +3567,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Restaurants: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Restaurant PUT",
@@ -2178,7 +3615,26 @@
               "mode": "raw",
               "raw": "{\n  \"name\": \"Имя\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Restaurant PUT: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Restaurant settings GET",
@@ -2203,7 +3659,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Restaurant settings GET: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Restaurant settings PUT",
@@ -2232,7 +3707,26 @@
               "mode": "raw",
               "raw": "{\n  \"booking_open_hour\": 10\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Restaurant settings PUT: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Users",
@@ -2257,7 +3751,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Users: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "User PUT",
@@ -2286,7 +3799,26 @@
               "mode": "raw",
               "raw": "{\n  \"status\": \"active\"\n}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('User PUT: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Global settings GET",
@@ -2311,7 +3843,26 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Global settings GET: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "Global settings PUT",
@@ -2340,20 +3891,28 @@
               "mode": "raw",
               "raw": "{}"
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('HTTP: нет ошибки 5xx', function () {",
+                  "  pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Ответ получен быстрее 30 с', function () {",
+                  "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+                  "});",
+                  "pm.test('Global settings PUT: запрос выполнен', function () {",
+                  "  pm.expect(pm.response.code).to.be.at.least(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
-    }
-  ],
-  "event": [
-    {
-      "listen": "prerequest",
-      "script": {
-        "type": "text/javascript",
-        "exec": [
-          ""
-        ]
-      }
     }
   ]
 }
