@@ -16,8 +16,8 @@ import (
 func (a *Handlers) handleReservationsMy(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
 	rows, err := a.Pool.Query(r.Context(), `
-		SELECT r.id, r.table_id, r.start_time, r.end_time, r.guest_count, r.status, r.comment, r.created_at,
-		       t.table_number, h.id, h.restaurant_id, rest.name, COALESCE(rest.slug,'')
+		SELECT r.id, r.table_id, r.start_time, r.end_time, r.guest_count, r.status, COALESCE(r.comment,''), r.created_at,
+		       t.table_number, h.id, h.restaurant_id, COALESCE(rest.name,''), COALESCE(rest.slug,'')
 		FROM reservations r
 		JOIN tables t ON t.id = r.table_id
 		JOIN halls h ON h.id = t.hall_id
@@ -38,13 +38,19 @@ func (a *Handlers) handleReservationsMy(w http.ResponseWriter, r *http.Request) 
 		var created time.Time
 		var tnum int
 		var restName, restSlug string
-		_ = rows.Scan(&id, &tid, &st, &end, &guests, &status, &comment, &created, &tnum, &hid, &restID, &restName, &restSlug)
+		if err := rows.Scan(&id, &tid, &st, &end, &guests, &status, &comment, &created, &tnum, &hid, &restID, &restName, &restSlug); err != nil {
+			continue
+		}
 		out = append(out, map[string]any{
 			"id": id.String(), "table_id": tid.String(), "hall_id": hid.String(),
 			"restaurant_id": restID.String(), "restaurant_name": restName, "restaurant_slug": restSlug,
 			"start_time": st, "end_time": end, "guest_count": guests, "status": status,
 			"comment": comment, "created_at": created, "table_number": tnum,
 		})
+	}
+	if errRows := rows.Err(); errRows != nil {
+		a.err(w, http.StatusInternalServerError, "БД")
+		return
 	}
 	a.json(w, http.StatusOK, out)
 }

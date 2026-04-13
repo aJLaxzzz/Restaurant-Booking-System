@@ -306,7 +306,7 @@ func (a *Handlers) topUpTrattoriaIfMissing(ctx context.Context, ownerID uuid.UUI
 		return
 	}
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Основной зал')`, hid, rid)
-	wallsMain := `{"walls":[{"x1":0,"y1":0,"x2":920,"y2":0},{"x1":920,"y1":0,"x2":920,"y2":640},{"x1":920,"y1":640,"x2":0,"y2":640},{"x1":0,"y1":640,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Панорамные окна","x":60,"y":40,"w":200,"h":32},{"type":"window_band","x":0,"y":0,"w":920,"h":24}]}`
+	wallsMain := demoTrattoriaMainHallLayoutJSON()
 	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hid, wallsMain)
 	mainTables := []struct {
 		num        int
@@ -347,7 +347,7 @@ func (a *Handlers) patchTrattoriaHallTablesMenu(ctx context.Context, rid uuid.UU
 	if hc == 0 {
 		hid = uuid.New()
 		_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Основной зал')`, hid, rid)
-		wallsMain := `{"walls":[{"x1":0,"y1":0,"x2":920,"y2":0},{"x1":920,"y1":0,"x2":920,"y2":640},{"x1":920,"y1":640,"x2":0,"y2":640},{"x1":0,"y1":640,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Панорамные окна","x":60,"y":40,"w":200,"h":32},{"type":"window_band","x":0,"y":0,"w":920,"h":24}]}`
+		wallsMain := demoTrattoriaMainHallLayoutJSON()
 		_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hid, wallsMain)
 	} else if tc == 0 {
 		_ = a.Pool.QueryRow(ctx, `SELECT id FROM halls WHERE restaurant_id=$1 ORDER BY created_at LIMIT 1`, rid).Scan(&hid)

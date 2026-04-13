@@ -73,7 +73,7 @@ function segmentsFromGeometry(
     segs.push({ x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 });
   }
   for (const q of wallQuads) {
-    const pts = sampleQuad(q.x1, q.y1, q.qx, q.qy, q.x2, q.y2, 24);
+    const pts = sampleQuad(q.x1, q.y1, q.qx, q.qy, q.x2, q.y2, 48);
     for (let i = 0; i < pts.length - 1; i++) {
       segs.push({ x1: pts[i].x, y1: pts[i].y, x2: pts[i + 1].x, y2: pts[i + 1].y });
     }
@@ -189,6 +189,28 @@ function boundaryPolygonFromVisited(
   return null;
 }
 
+/** Если обход рёбер сетки не замкнулся (т-junction и т.п.) — прямоугольник по охвату посещённых клеток. */
+function bboxPolygonFromVisited(visited: Set<string>, cs: number): number[] | null {
+  let mini = Infinity,
+    maxi = -Infinity,
+    minj = Infinity,
+    maxj = -Infinity;
+  for (const k of visited) {
+    const [si, sj] = k.split(',').map(Number);
+    if (!Number.isFinite(si) || !Number.isFinite(sj)) continue;
+    mini = Math.min(mini, si);
+    maxi = Math.max(maxi, si);
+    minj = Math.min(minj, sj);
+    maxj = Math.max(maxj, sj);
+  }
+  if (!Number.isFinite(mini) || maxi < mini || maxj < minj) return null;
+  const x0 = mini * cs;
+  const y0 = minj * cs;
+  const x1 = (maxi + 1) * cs;
+  const y1 = (maxj + 1) * cs;
+  return [x0, y0, x1, y0, x1, y1, x0, y1];
+}
+
 /**
  * Возвращает замкнутый полигон области, в которой лежит (worldX, worldY), ограниченной стенами и краем холста.
  */
@@ -273,14 +295,14 @@ export function floodRegionPolygonFromWalls(
 
   if (visited.size < 2) return null;
 
-  const gridCells = nx * ny;
-  /** Незамкнутый периметр: вода заполняет почти всю сетку — не возвращаем полигон «на весь чертёж». */
-  if (visited.size > gridCells * 0.86) return null;
-
-  const poly = boundaryPolygonFromVisited(visited, nx, ny, cs);
+  let poly = boundaryPolygonFromVisited(visited, nx, ny, cs);
+  if (!poly || poly.length < 6) {
+    poly = bboxPolygonFromVisited(visited, cs);
+  }
   if (!poly || poly.length < 6) return null;
   const a = polygonArea(poly);
-  if (a / (stageW * stageH) > 0.9) return null;
+  /** Отсекаем только явную «заливку почти всего листа» без нормального контура (остальное — в т.ч. большая комната). */
+  if (a / (stageW * stageH) > 0.9995) return null;
 
   return poly;
 }

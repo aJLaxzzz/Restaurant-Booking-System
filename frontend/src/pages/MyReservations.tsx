@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '../auth';
 import { api } from '../api';
 import { format, parseISO } from 'date-fns';
 import { reservationStatusLabelRu } from '../utils/reservationStatus';
@@ -21,6 +22,11 @@ function formatRub(kopecks: number) {
     currency: 'RUB',
     maximumFractionDigits: 0,
   });
+}
+
+function axiosErrorText(e: unknown, fallback: string): string {
+  const ax = e as { response?: { data?: { error?: string } }; message?: string };
+  return ax.response?.data?.error || ax.message || fallback;
 }
 
 type OrderLineRow = {
@@ -66,7 +72,13 @@ function ClientSelfOrder({
     ]);
     setLines(Array.isArray(ord.lines) ? ord.lines : []);
     setTotal(ord.total_kopecks || 0);
-    const items = Array.isArray(m.data.items) ? m.data.items : [];
+    const rawItems = Array.isArray(m.data.items) ? m.data.items : [];
+    const seenId = new Set<string>();
+    const items = rawItems.filter((it) => {
+      if (seenId.has(it.id)) return false;
+      seenId.add(it.id);
+      return true;
+    });
     const catsRaw = Array.isArray(m.data.categories) ? m.data.categories : [];
     setMenu(items);
     const cats = [...catsRaw].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'ru'));
@@ -215,16 +227,55 @@ function ClientSelfOrder({
 }
 
 export default function MyReservations() {
+  const { user } = useAuth();
   const [rows, setRows] = useState<Row[]>([]);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
   const load = async () => {
-    const { data } = await api.get<Row[]>('/reservations/my');
-    setRows(data);
+    setLoadErr(null);
+    try {
+      const { data } = await api.get<Row[]>('/reservations/my');
+      setRows(Array.isArray(data) ? data : []);
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { error?: string } }; message?: string };
+      setLoadErr(ax.response?.data?.error || ax.message || 'Не удалось загрузить брони');
+      setRows([]);
+    }
   };
 
   useEffect(() => {
+    if (!user) return;
     void load();
-  }, []);
+  }, [user?.id]);
+
+  /** На одного гостя иногда приходит несколько строк (дубликаты в ответе / тестовые данные) — не дублируем строки таблицы. */
+  const rowsUnique = useMemo(() => {
+    const m = new Map<string, Row>();
+    for (const r of rows) {
+      if (!m.has(r.id)) m.set(r.id, r);
+    }
+    return [...m.values()];
+  }, [rows]);
+
+  /**
+   * Блок «меню / заказ за столом» только у одной брони: иначе при нескольких seated/in_service
+   * (ошибка данных или несколько активных записей) интерфейс повторялся бы целиком.
+   */
+  const selfOrderReservationId = useMemo(() => {
+    const eligible = rowsUnique.filter(
+      (r) =>
+        (r.status === 'seated' || r.status === 'in_service') &&
+        r.restaurant_id &&
+        r.restaurant_id.length > 0,
+    );
+    if (eligible.length === 0) return null;
+    eligible.sort((a, b) => {
+      const pri = (x: Row) => (x.status === 'in_service' ? 2 : 1);
+      if (pri(b) !== pri(a)) return pri(b) - pri(a);
+      return new Date(b.start_time).getTime() - new Date(a.start_time).getTime();
+    });
+    return eligible[0].id;
+  }, [rowsUnique]);
 
   const cancel = async (id: string) => {
     if (!confirm('Отменить бронь?')) return;
@@ -250,22 +301,41 @@ export default function MyReservations() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <ReservationBlock key={r.id} r={r} onCancel={cancel} />
+              {rowsUnique.map((r) => (
+                <ReservationBlock
+                  key={r.id}
+                  r={r}
+                  onCancel={cancel}
+                  selfOrderReservationId={selfOrderReservationId}
+                />
               ))}
             </tbody>
           </table>
         </div>
-        {rows.length === 0 && <p className="muted">Нет активных броней</p>}
+        {loadErr && <p className="form-msg">{loadErr}</p>}
+        {rowsUnique.length === 0 && !loadErr && <p className="muted">Нет активных броней</p>}
       </div>
     </div>
   );
 }
 
-function ReservationBlock({ r, onCancel }: { r: Row; onCancel: (id: string) => void }) {
+function ReservationBlock({
+  r,
+  onCancel,
+  selfOrderReservationId,
+}: {
+  r: Row;
+  onCancel: (id: string) => void;
+  selfOrderReservationId: string | null;
+}) {
   const [orderTotal, setOrderTotal] = useState<number | null>(null);
   const [orderOpen, setOrderOpen] = useState(false);
   const [orderRefresh, setOrderRefresh] = useState(0);
+  const [payFeedback, setPayFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  useEffect(() => {
+    setPayFeedback(null);
+  }, [r.id]);
 
   useEffect(() => {
     void (async () => {
@@ -282,26 +352,46 @@ function ReservationBlock({ r, onCancel }: { r: Row; onCancel: (id: string) => v
   }, [r.id, r.status, orderRefresh]);
 
   const payTab = async () => {
+    setPayFeedback(null);
     try {
       const { data } = await api.post<{
         payment_id?: string;
         closed_without_payment?: boolean;
+        checkout_url?: string;
       }>(`/reservations/${r.id}/order/checkout`);
       if (data.closed_without_payment) {
         setOrderRefresh((n) => n + 1);
+        setPayFeedback({
+          kind: 'ok',
+          text: 'Счёт закрыт без дополнительной оплаты (например, депозит покрыл сумму).',
+        });
         return;
       }
-      if (data.payment_id) {
-        window.location.href = `/pay/${data.payment_id}`;
+      const pid = data.payment_id;
+      if (pid) {
+        window.location.assign(`/pay/${pid}`);
+        return;
       }
-    } catch {
-      /* ошибка показывается косвенно — кнопка остаётся */
+      const url = data.checkout_url;
+      if (url && typeof url === 'string') {
+        window.location.assign(url.startsWith('/') ? url : `/${url}`);
+        return;
+      }
+      setPayFeedback({ kind: 'err', text: 'Сервер не вернул ссылку на оплату. Обновите страницу.' });
+    } catch (e: unknown) {
+      setPayFeedback({
+        kind: 'err',
+        text: axiosErrorText(e, 'Не удалось перейти к оплате'),
+      });
     }
   };
 
   const showPay = orderTotal != null && orderTotal > 0 && orderOpen && (r.status === 'seated' || r.status === 'in_service');
   const showSelfOrder =
-    (r.status === 'seated' || r.status === 'in_service') && r.restaurant_id && r.restaurant_id.length > 0;
+    (r.status === 'seated' || r.status === 'in_service') &&
+    r.restaurant_id &&
+    r.restaurant_id.length > 0 &&
+    selfOrderReservationId === r.id;
 
   return (
     <>
@@ -333,6 +423,11 @@ function ReservationBlock({ r, onCancel }: { r: Row; onCancel: (id: string) => v
               </button>
             )}
           </div>
+          {payFeedback && (
+            <p className={payFeedback.kind === 'err' ? 'form-msg' : 'muted compact'} style={{ marginTop: 8, marginBottom: 0 }}>
+              {payFeedback.text}
+            </p>
+          )}
         </td>
       </tr>
       {showSelfOrder && (

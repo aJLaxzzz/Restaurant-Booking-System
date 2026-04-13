@@ -261,20 +261,27 @@ export default function WaiterPage() {
   const { user } = useAuth();
   const canEditMenu = user?.role === 'waiter';
   const [rows, setRows] = useState<Row[]>([]);
+  const [restaurantLabel, setRestaurantLabel] = useState<string | null>(null);
   const [scheduledToday, setScheduledToday] = useState(true);
   const [noteFor, setNoteFor] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
   const [msg, setMsg] = useState('');
 
   const load = useCallback(async () => {
-    const { data } = await api.get<{ scheduled_today?: boolean; tables?: Row[] } | Row[]>('/waiter/my-tables');
+    const { data } = await api.get<{
+      scheduled_today?: boolean;
+      tables?: Row[];
+      restaurant_name?: string;
+    }>('/waiter/my-tables');
     if (data && typeof data === 'object' && !Array.isArray(data) && 'tables' in data) {
       setScheduledToday(data.scheduled_today === true);
       setRows(Array.isArray(data.tables) ? data.tables : []);
+      setRestaurantLabel(typeof data.restaurant_name === 'string' && data.restaurant_name.trim() ? data.restaurant_name.trim() : null);
     } else {
       const arr = Array.isArray(data) ? data : [];
       setRows(arr);
       setScheduledToday(arr.length > 0);
+      setRestaurantLabel(null);
     }
   }, []);
 
@@ -322,7 +329,11 @@ export default function WaiterPage() {
     <div className="page-stack">
       <div className="card hero-card">
         <h1>Столы официанта</h1>
-        <p className="muted">Назначенные брони: посадка, обслуживание, заказ по меню и заметки.</p>
+        {restaurantLabel && (
+          <p className="muted" style={{ marginTop: 0 }}>
+            <strong>Заведение:</strong> {restaurantLabel}
+          </p>
+        )}
       </div>
 
       <div className="card">

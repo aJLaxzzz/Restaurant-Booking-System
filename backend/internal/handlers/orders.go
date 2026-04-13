@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -63,7 +64,8 @@ func (a *Handlers) reservationOrderAccess(w http.ResponseWriter, r *http.Request
 			a.err(w, http.StatusForbidden, "строки заказа добавляет только официант")
 			return uuid.Nil, uuid.Nil, false
 		}
-		if !hasAssign || assignedWaiter != u.ID {
+		/** Пока стол ни за кем не закреплён — может вести заказ любой официант зала; иначе только назначенный. */
+		if hasAssign && assignedWaiter != u.ID {
 			a.err(w, http.StatusForbidden, "не назначенный официант за этот стол")
 			return uuid.Nil, uuid.Nil, false
 		}
@@ -240,7 +242,40 @@ func (a *Handlers) handleReservationOrderLinePost(w http.ResponseWriter, r *http
 		a.err(w, http.StatusInternalServerError, "не добавлено")
 		return
 	}
+	if addedBy == "client" {
+		a.assignWaiterFromTodaysSchedule(r.Context(), rid)
+	}
 	a.json(w, http.StatusCreated, map[string]string{"id": lid.String()})
+}
+
+// assignWaiterFromTodaysSchedule — если за столом ещё нет официанта, закрепить одного из смены (МСК).
+// Демо-аккаунты @demo.ru идут первыми, чтобы тестовый waiter5@ получал стол, а не другой официант из графика.
+func (a *Handlers) assignWaiterFromTodaysSchedule(ctx context.Context, resID uuid.UUID) {
+	var restID uuid.UUID
+	err := a.Pool.QueryRow(ctx, `
+		SELECT h.restaurant_id FROM reservations r
+		JOIN tables t ON t.id = r.table_id
+		JOIN halls h ON h.id = t.hall_id
+		WHERE r.id = $1`, resID).Scan(&restID)
+	if err != nil {
+		return
+	}
+	loc := bookingLocationMoscow()
+	today := time.Now().In(loc).Format("2006-01-02")
+	var wid uuid.UUID
+	err = a.Pool.QueryRow(ctx, `
+		SELECT wwd.user_id
+		FROM waiter_work_dates wwd
+		INNER JOIN users u ON u.id = wwd.user_id AND u.role = 'waiter'
+		WHERE wwd.restaurant_id = $1 AND wwd.work_date = $2::date
+		ORDER BY (u.email LIKE '%@demo.ru') DESC, u.email ASC
+		LIMIT 1`, restID, today).Scan(&wid)
+	if err != nil {
+		return
+	}
+	_, _ = a.Pool.Exec(ctx, `
+		UPDATE reservations SET assigned_waiter_id = $2, updated_at = NOW()
+		WHERE id = $1 AND assigned_waiter_id IS NULL`, resID, wid)
 }
 
 func (a *Handlers) handleReservationOrderLineDelete(w http.ResponseWriter, r *http.Request) {

@@ -19,6 +19,7 @@ func (a *Handlers) Seed(ctx context.Context) {
 	// (один ресторан, остальные INSERT с тем же slug упали) — иначе ветка hallCount==0 никогда
 	// не вызывала ensureExtra, и на главной оставался один ресторан.
 	a.ensureExtraDemoRestaurants(ctx)
+	a.ensureTrattoriaMainHallDemoZonesLayout(ctx)
 	var resCount int
 	_ = a.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM reservations`).Scan(&resCount)
 	if resCount == 0 {
@@ -37,7 +38,7 @@ func (a *Handlers) ensureSuperadminUser(ctx context.Context) {
 	}
 	_, _ = a.Pool.Exec(ctx, `
 		INSERT INTO users (email, password_hash, full_name, phone, role, email_verified)
-		VALUES ('superadmin@demo.ru',$1,'Системный администратор','+79000000000','superadmin',true)
+		VALUES ('superadmin@demo.ru',$1,'Администратор системы','+79000000000','superadmin',true)
 		ON CONFLICT (email) DO UPDATE SET
 			role = 'superadmin',
 			password_hash = EXCLUDED.password_hash,
@@ -49,6 +50,49 @@ func (a *Handlers) ensureDefaultSettings(ctx context.Context) {
 	_, _ = a.Pool.Exec(ctx, `
 		INSERT INTO settings (key, value) VALUES ('no_show_grace_minutes', '{"minutes":20}'::jsonb)
 		ON CONFLICT (key) DO NOTHING`)
+}
+
+// demoTrattoriaMainHallLayoutJSON — демо-схема основного зала: периметр, перегородка, окна, дверной проём, подписи и зоны.
+func demoTrattoriaMainHallLayoutJSON() string {
+	return `{"canvas_width":920,"canvas_height":640,` +
+		`"walls":[{"x1":0,"y1":0,"x2":920,"y2":0},{"x1":920,"y1":0,"x2":920,"y2":640},{"x1":920,"y1":640,"x2":0,"y2":640},{"x1":0,"y1":640,"x2":0,"y2":0},{"x1":460,"y1":96,"x2":460,"y2":544}],` +
+		`"rooms":[{"polygon":[28,28,452,28,452,612,28,612],"label":"Главный зал","kind":"main"},{"polygon":[468,28,892,28,892,612,468,612],"label":"Летняя зона","kind":"terrace"}],` +
+		`"decorations":[` +
+		`{"type":"zone_label","text":"Панорамные окна","x":52,"y":48,"w":220,"h":32},` +
+		`{"type":"window_band","x":0,"y":0,"w":920,"h":32},` +
+		`{"type":"door","x1":420,"y1":300,"x2":500,"y2":300},` +
+		`{"type":"zone_named","label":"Главный зал","points":[36,52,444,52,444,604,36,604],"fill":"rgba(99,102,241,0.14)","stroke":"rgba(129,140,248,0.55)","labelX":52,"labelY":68},` +
+		`{"type":"zone_named","label":"Летняя зона","points":[476,52,884,52,884,604,476,604],"fill":"rgba(245,158,11,0.12)","stroke":"rgba(251,191,36,0.55)","labelX":580,"labelY":68}` +
+		`]}`
+}
+
+// ensureTrattoriaMainHallDemoZonesLayout — для уже существующей БД: подставляет расширенную демо-схему,
+// если в «Основном зале» Траттории ещё нет zone_named (старый сид / topup). dev-restart сам по себе БД не чистит.
+func (a *Handlers) ensureTrattoriaMainHallDemoZonesLayout(ctx context.Context) {
+	ct, err := a.Pool.Exec(ctx, `
+		UPDATE halls h
+		SET layout_json = $1::jsonb, updated_at = NOW()
+		FROM restaurants r
+		WHERE h.restaurant_id = r.id
+		  AND r.slug = 'trattoria-tverskaya'
+		  AND h.name = 'Основной зал'
+		  AND (
+			h.layout_json IS NULL
+			OR jsonb_typeof(h.layout_json) <> 'object'
+			OR NOT EXISTS (
+				SELECT 1
+				FROM jsonb_array_elements(COALESCE(h.layout_json->'decorations', '[]'::jsonb)) AS elem
+				WHERE elem->>'type' = 'zone_named'
+			)
+		  )
+	`, demoTrattoriaMainHallLayoutJSON())
+	if err != nil {
+		log.Printf("сид: ensureTrattoriaMainHallDemoZonesLayout: %v", err)
+		return
+	}
+	if ct.RowsAffected() > 0 {
+		log.Printf("сид: обновлён layout_json основного зала Траттории (демо: зоны, окна, дверь)")
+	}
 }
 
 func (a *Handlers) seedBase(ctx context.Context) {
@@ -107,7 +151,7 @@ func (a *Handlers) seedBase(ctx context.Context) {
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Зал татами')`, hidSakura, rid3)
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Основной зал')`, hidBella, rid4)
 
-	wallsMain := `{"walls":[{"x1":0,"y1":0,"x2":920,"y2":0},{"x1":920,"y1":0,"x2":920,"y2":640},{"x1":920,"y1":640,"x2":0,"y2":640},{"x1":0,"y1":640,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Панорамные окна","x":60,"y":40,"w":200,"h":32},{"type":"window_band","x":0,"y":0,"w":920,"h":24}]}`
+	wallsMain := demoTrattoriaMainHallLayoutJSON()
 	wallsTerr := `{"walls":[{"x1":0,"y1":0,"x2":720,"y2":0},{"x1":720,"y1":0,"x2":720,"y2":480},{"x1":720,"y1":480,"x2":0,"y2":480},{"x1":0,"y1":480,"x2":0,"y2":0}],"decorations":[]}`
 	wallsLuna := `{"walls":[{"x1":0,"y1":0,"x2":800,"y2":0},{"x1":800,"y1":0,"x2":800,"y2":560},{"x1":800,"y1":560,"x2":0,"y2":560},{"x1":0,"y1":560,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Центр зала","x":360,"y":260,"w":120,"h":28}]}`
 	wallsSakura := `{"walls":[{"x1":0,"y1":0,"x2":680,"y2":0},{"x1":680,"y1":0,"x2":680,"y2":520},{"x1":680,"y1":520,"x2":0,"y2":520},{"x1":0,"y1":520,"x2":0,"y2":0}],"decorations":[]}`

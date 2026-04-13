@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (a *Handlers) handleTableCreate(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +109,16 @@ func (a *Handlers) handleTableDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ct, err := a.Pool.Exec(r.Context(), `DELETE FROM tables WHERE id=$1 AND hall_id=$2`, tid, hallID)
-	if err != nil || ct.RowsAffected() == 0 {
+	if err != nil {
+		var pe *pgconn.PgError
+		if errors.As(err, &pe) && pe.Code == "23503" {
+			a.err(w, http.StatusConflict, "нельзя удалить стол: есть связанные брони. Отмените брони или перенесите их на другой стол.")
+			return
+		}
+		a.err(w, http.StatusInternalServerError, "не удалось удалить стол")
+		return
+	}
+	if ct.RowsAffected() == 0 {
 		a.err(w, http.StatusNotFound, "не найден")
 		return
 	}

@@ -83,7 +83,7 @@ export default function PayPage() {
           <p>Статус: {info.status}</p>
           {info.status === 'pending' && (
             <button type="button" className="btn" onClick={() => void pay()}>
-              Оплатить (имитация)
+              Оплатить
             </button>
           )}
         </>

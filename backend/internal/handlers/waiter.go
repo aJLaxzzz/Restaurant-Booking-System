@@ -190,6 +190,9 @@ func (a *Handlers) handleWaiterTables(w http.ResponseWriter, r *http.Request) {
 		a.err(w, http.StatusForbidden, "нет привязки к заведению")
 		return
 	}
+	var restName, restSlug string
+	_ = a.Pool.QueryRow(r.Context(), `
+		SELECT COALESCE(name,''), COALESCE(slug,'') FROM restaurants WHERE id=$1`, ridScope).Scan(&restName, &restSlug)
 	loc := bookingLocationMoscow()
 	now := time.Now().In(loc)
 	todayYMD := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Format("2006-01-02")
@@ -215,7 +218,13 @@ func (a *Handlers) handleWaiterTables(w http.ResponseWriter, r *http.Request) {
 		JOIN users us ON us.id = r.user_id
 		WHERE h.restaurant_id = $3
 		AND (
-			($2 = 'waiter' AND r.assigned_waiter_id = $1)
+			($2 = 'waiter' AND (
+				r.assigned_waiter_id = $1
+				OR (
+					r.assigned_waiter_id IS NULL
+					AND r.status IN ('seated','in_service','pending_payment')
+				)
+			))
 			OR $2 IN ('admin','owner')
 		)
 		AND r.status IN ('confirmed','seated','in_service','pending_payment')
@@ -244,7 +253,10 @@ func (a *Handlers) handleWaiterTables(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	a.json(w, http.StatusOK, map[string]any{
-		"scheduled_today": scheduledToday,
-		"tables":          out,
+		"scheduled_today":   scheduledToday,
+		"tables":            out,
+		"restaurant_id":     ridScope.String(),
+		"restaurant_name":   restName,
+		"restaurant_slug":   restSlug,
 	})
 }

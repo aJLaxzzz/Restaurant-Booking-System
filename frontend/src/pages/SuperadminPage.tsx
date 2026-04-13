@@ -403,7 +403,7 @@ export default function SuperadminPage() {
   return (
     <div className="page-stack">
       <div className="card">
-        <h2>Суперадмин</h2>
+        <h2>Администратор системы</h2>
         <p className="muted">Вкладки: заявки, пользователи, рестораны, брони и меню по выбранному ресторану, просмотр счёта, глобальные настройки.</p>
         {msg && <p className="form-msg">{msg}</p>}
         <div className="btn-row tight" style={{ flexWrap: 'wrap', marginTop: 12 }}>
@@ -745,7 +745,7 @@ function UserEditRow({
         <select className="compact-select" value={role} onChange={(e) => setRole(e.target.value)}>
           {['client', 'owner', 'admin', 'waiter', 'superadmin'].map((r) => (
             <option key={r} value={r}>
-              {r}
+              {r === 'superadmin' ? 'Администратор системы' : r}
             </option>
           ))}
         </select>

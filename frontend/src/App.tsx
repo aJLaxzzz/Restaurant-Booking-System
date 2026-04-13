@@ -70,7 +70,7 @@ function NavBar() {
 
           {user?.role === 'superadmin' && (
             <Link to="/superadmin" className={loc.pathname.startsWith('/superadmin') ? 'active' : ''}>
-              Суперадмин
+              Администратор системы
             </Link>
           )}
 
@@ -124,7 +124,7 @@ function roleLabel(role: string) {
     admin: 'Админ',
     owner: 'Владелец',
     waiter: 'Официант',
-    superadmin: 'Суперадмин',
+    superadmin: 'Администратор системы',
   };
   return m[role] || role;
 }

@@ -182,7 +182,7 @@ func (a *Handlers) handleSuperadminUserPut(w http.ResponseWriter, r *http.Reques
 			var n int
 			_ = a.Pool.QueryRow(r.Context(), `SELECT COUNT(*)::int FROM users WHERE role='superadmin'`).Scan(&n)
 			if n < 2 {
-				a.err(w, http.StatusForbidden, "нельзя снять последнего суперадмина")
+				a.err(w, http.StatusForbidden, "нельзя снять последнего администратора системы")
 				return
 			}
 		}

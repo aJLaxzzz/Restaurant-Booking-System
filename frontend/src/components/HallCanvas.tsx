@@ -32,6 +32,18 @@ type WallArc = { type: 'arc'; cx: number; cy: number; r: number; a0: number; a1:
 type HallRoom = { polygon: number[]; kind?: string; label?: string };
 type ChairPt = { dx: number; dy: number };
 
+/** Буфер Ctrl+C / Ctrl+V: геометрия стола и смещения стульев относительно центра. */
+type TableClip = {
+  capacity: number;
+  x: number;
+  y: number;
+  shape: string;
+  width: number;
+  height: number;
+  rotation_deg: number;
+  chairs: ChairPt[];
+};
+
 type RoomInset = { x: number; y: number; w: number; h: number };
 
 type Props = {
@@ -79,6 +91,31 @@ function isEllipseLike(shape: string) {
 
 function snap(v: number) {
   return Math.round(v / GRID) * GRID;
+}
+
+/** Ключ отрезка без направления — для слияния `walls` и линий из `wall_segments` без дубликатов. */
+function wallLineKey(w: Wall): string {
+  const x1 = Number(w.x1);
+  const y1 = Number(w.y1);
+  const x2 = Number(w.x2);
+  const y2 = Number(w.y2);
+  const r = (n: number) => Math.round(n * 100) / 100;
+  const p = `${r(x1)},${r(y1)},${r(x2)},${r(y2)}`;
+  const q = `${r(x2)},${r(y2)},${r(x1)},${r(y1)}`;
+  return p <= q ? p : q;
+}
+
+function mergeWallLinesDeduped(a: Wall[], b: Wall[]): Wall[] {
+  const map = new Map<string, Wall>();
+  for (const w of a) {
+    const k = wallLineKey(w);
+    if (!map.has(k)) map.set(k, { ...w });
+  }
+  for (const w of b) {
+    const k = wallLineKey(w);
+    if (!map.has(k)) map.set(k, { ...w });
+  }
+  return [...map.values()];
 }
 
 type Path2DCtx = { moveTo(x: number, y: number): void; lineTo(x: number, y: number): void; closePath(): void };
@@ -193,6 +230,18 @@ export function HallCanvas({
     selectedArc: null as number | null,
     selectedQuad: null as number | null,
   });
+  const chairLayoutRef = useRef<Record<string, ChairPt[]>>({});
+  const editorKeyRef = useRef({
+    editMode: false,
+    editorMode: 'interior' as EditorMode,
+    placeMode: 'none' as PlaceMode,
+    selectedId: null as string | null,
+    zoneFillModalOpen: false,
+    addTableOpen: false,
+  });
+  const tableClipRef = useRef<TableClip | null>(null);
+  /** После POST нового стола load() поднимает useEffect со стульями — сюда кладём раскладку из буфера вставки, чтобы не затёрлась defaultChairOffsets. */
+  const pastePendingChairsRef = useRef<Map<string, ChairPt[]>>(new Map());
 
   useEffect(() => {
     scaleRef.current = scale;
@@ -201,6 +250,7 @@ export function HallCanvas({
     panRef.current = worldPan;
   }, [worldPan]);
   tablesRef.current = tables;
+  chairLayoutRef.current = chairLayout;
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -432,7 +482,12 @@ export function HallCanvas({
             });
           }
         }
-        if (lineWalls.length > 0) nextWalls = lineWalls;
+        /**
+         * Раньше при наличии wall_segments подменяли весь массив линий только сегментами из него —
+         * стены из поля `walls` без дубликата в wall_segments пропадали из состояния.
+         * Flood тогда «не видел» периметр и заливал почти весь холст.
+         */
+        if (lineWalls.length > 0) nextWalls = mergeWallLinesDeduped(nextWalls, lineWalls);
       }
       setWalls(nextWalls);
       setWallArcs(nextArcs);
@@ -530,6 +585,13 @@ export function HallCanvas({
         const rw = t.width && t.width > 0 ? t.width / 2 : t.radius || 28;
         const rh = t.height && t.height > 0 ? t.height / 2 : t.radius || 28;
         const cap = Math.max(1, Math.min(24, t.capacity));
+        const pending = pastePendingChairsRef.current.get(t.id);
+        if (pending && pending.length === cap) {
+          next[t.id] = pending.map((c) => ({ dx: c.dx, dy: c.dy }));
+          pastePendingChairsRef.current.delete(t.id);
+          changed = true;
+          continue;
+        }
         const cur = next[t.id];
         if (!cur || cur.length !== cap) {
           next[t.id] = defaultChairOffsets(cap, rw, rh, t.shape || 'circle');
@@ -585,6 +647,53 @@ export function HallCanvas({
     }
     return map;
   }, [decorations]);
+
+  const deleteSelectedTable = useCallback(async () => {
+    if (!selectedId) return;
+    if (!window.confirm('Удалить стол? Это действие необратимо.')) return;
+    captureUndo();
+    try {
+      await api.delete(`/halls/${hallId}/tables/${selectedId}`);
+      onTableSelect?.(null);
+      await load();
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { error?: string } } };
+      window.alert(ax.response?.data?.error || 'Не удалось удалить стол');
+    }
+  }, [selectedId, hallId, load, onTableSelect]);
+
+  const pasteTableFromClip = useCallback(
+    async (clip: TableClip) => {
+      const nums = tablesRef.current.map((t) => t.number);
+      const nextNum = (nums.length ? Math.max(...nums) : 0) + 1;
+      captureUndo();
+      try {
+        const { data } = await api.post<{ id: string }>(`/halls/${hallId}/tables`, {
+          table_number: nextNum,
+          capacity: clip.capacity,
+          x: snap(clip.x + 48),
+          y: snap(clip.y + 48),
+          shape: clip.shape,
+          width: clip.width,
+          height: clip.height,
+          rotation_deg: clip.rotation_deg ?? 0,
+        });
+        const newId = data.id;
+        pastePendingChairsRef.current.set(
+          newId,
+          clip.chairs.map((c) => ({ dx: c.dx, dy: c.dy })),
+        );
+        await load();
+        window.setTimeout(() => {
+          const t = tablesRef.current.find((x) => x.id === newId);
+          if (t) onTableSelect?.(t);
+        }, 0);
+      } catch {
+        window.alert('Не удалось вставить стол');
+      }
+    },
+    [hallId, load, onTableSelect],
+  );
 
   const saveLayout = async () => {
     await api.put(`/halls/${hallId}/layout`, {
@@ -717,8 +826,8 @@ export function HallCanvas({
         }
       }
       const hits: ZHit[] = [];
-      if (decHits.length > 1) {
-        // Вложенные зоны в декоре: не подмешиваем flood (сетка), иначе перебивает меньшую зону. Комнаты rooms — всегда в кандидатах: после сохранения можно целиться в контур помещения.
+      if (decHits.length > 0) {
+        // Любая зона из декора: не подмешиваем flood — BFS по сетке даёт артефакты у косых стен и может «перебить» меньшую зону по площади.
         hits.push(...decHits, ...roomHits);
       } else {
         const fromWalls = floodRegionPolygonFromWalls(px, py, stageW, stageH, walls, wallArcs, wallQuads);
@@ -726,7 +835,6 @@ export function HallCanvas({
           hits.push({ poly: [...fromWalls], area: polygonArea(fromWalls) });
         }
         hits.push(...roomHits);
-        hits.push(...decHits);
       }
       if (hits.length > 0) {
         hits.sort((a, b) => a.area - b.area);
@@ -877,11 +985,33 @@ export function HallCanvas({
       captureUndo();
       setDecorations((d) => d.filter((_, j) => j !== selectedDec));
       setSelectedDec(null);
+      return;
+    }
+    if (
+      editMode &&
+      editorMode === 'interior' &&
+      placeMode === 'none' &&
+      selectedId &&
+      selectedWall === null &&
+      selectedArc === null &&
+      selectedQuad === null &&
+      selectedDec === null
+    ) {
+      void deleteSelectedTable();
     }
   };
 
   deleteSelectedRef.current = deleteSelected;
   selectionKeyRef.current = { selectedDec, selectedWall, selectedArc, selectedQuad };
+
+  editorKeyRef.current = {
+    editMode,
+    editorMode,
+    placeMode,
+    selectedId: selectedId ?? null,
+    zoneFillModalOpen,
+    addTableOpen,
+  };
 
   useEffect(() => {
     if (!editMode) return;
@@ -893,15 +1023,79 @@ export function HallCanvas({
         doUndo();
         return;
       }
+      const ctx = editorKeyRef.current;
+      if (mod && ev.key.toLowerCase() === 'c') {
+        if (
+          ctx.editMode &&
+          ctx.editorMode === 'interior' &&
+          ctx.placeMode === 'none' &&
+          ctx.selectedId &&
+          !ctx.zoneFillModalOpen &&
+          !ctx.addTableOpen
+        ) {
+          const t = tablesRef.current.find((x) => x.id === ctx.selectedId);
+          if (t) {
+            const tw = t.width && t.width > 0 ? t.width : (t.radius ?? 28) * 2;
+            const th = t.height && t.height > 0 ? t.height : (t.radius ?? 28) * 2;
+            const cap = Math.max(1, Math.min(24, t.capacity));
+            const rwH = tw / 2;
+            const rhH = th / 2;
+            let chairs = chairLayoutRef.current[t.id] || [];
+            if (chairs.length !== cap) {
+              chairs = defaultChairOffsets(cap, rwH, rhH, t.shape || 'circle');
+            }
+            tableClipRef.current = {
+              capacity: t.capacity,
+              x: t.x,
+              y: t.y,
+              shape: (t.shape || 'circle').toLowerCase(),
+              width: tw,
+              height: th,
+              rotation_deg: t.rotation_deg ?? 0,
+              chairs: chairs.map((c) => ({ dx: c.dx, dy: c.dy })),
+            };
+            ev.preventDefault();
+          }
+        }
+        return;
+      }
+      if (mod && ev.key.toLowerCase() === 'v') {
+        if (
+          ctx.editMode &&
+          ctx.editorMode === 'interior' &&
+          !ctx.zoneFillModalOpen &&
+          !ctx.addTableOpen
+        ) {
+          const clip = tableClipRef.current;
+          if (clip) {
+            ev.preventDefault();
+            void pasteTableFromClip(clip);
+          }
+        }
+        return;
+      }
       if (ev.key !== 'Delete' && ev.key !== 'Backspace') return;
       const s = selectionKeyRef.current;
-      if (s.selectedDec === null && s.selectedWall === null && s.selectedArc === null && s.selectedQuad === null) return;
-      ev.preventDefault();
-      deleteSelectedRef.current();
+      const hasStruct =
+        s.selectedDec !== null || s.selectedWall !== null || s.selectedArc !== null || s.selectedQuad !== null;
+      if (hasStruct) {
+        ev.preventDefault();
+        deleteSelectedRef.current();
+        return;
+      }
+      if (
+        ctx.editMode &&
+        ctx.editorMode === 'interior' &&
+        ctx.placeMode === 'none' &&
+        ctx.selectedId
+      ) {
+        ev.preventDefault();
+        void deleteSelectedTable();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editMode, doUndo]);
+  }, [editMode, doUndo, deleteSelectedTable, pasteTableFromClip]);
 
   const listenWalls = editMode && editorMode === 'walls';
   const listenInterior = editMode && editorMode === 'interior';
@@ -1016,6 +1210,7 @@ export function HallCanvas({
           )}
 
           {editorMode === 'interior' && (
+            <>
             <div className="hall-toolbar-group hall-toolbar-tools">
               <span className="hall-toolbar-label">Инструменты</span>
               <button
@@ -1066,12 +1261,16 @@ export function HallCanvas({
               <button
                 type="button"
                 className="secondary"
-                disabled={selectedDec === null}
+                disabled={selectedDec === null && !selectedId}
                 onClick={deleteSelected}
               >
                 Удалить объект
               </button>
             </div>
+            <p className="muted" style={{ fontSize: 12, margin: '4px 0 0' }}>
+              Стол: Ctrl+C / Ctrl+V — копия и вставка (вместе со стульями).
+            </p>
+            </>
           )}
 
           <div className="hall-toolbar-group hall-toolbar-view-row">
@@ -1931,6 +2130,21 @@ export function HallCanvas({
                   </Group>
                 );
               })}
+              {editMode && editorMode === 'interior' && placeMode === 'zone_fill' && (
+                <Rect
+                  name="zoneFillOverlay"
+                  x={0}
+                  y={0}
+                  width={stageW}
+                  height={stageH}
+                  fill="rgba(15,23,42,0.04)"
+                  listening
+                  onMouseDown={(e) => {
+                    e.cancelBubble = true;
+                    handleFloorPointer(e);
+                  }}
+                />
+              )}
               {editMode && editorMode === 'interior' && selectedId && placeMode === 'none' && (
                 <Transformer
                   ref={tableTransformerRef}

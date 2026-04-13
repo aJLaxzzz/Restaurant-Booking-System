@@ -56,7 +56,7 @@ export default function Register() {
         <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         <label className="checkbox-row">
           <input type="checkbox" checked={asOwner} onChange={(e) => setAsOwner(e.target.checked)} />
-          Регистрация как владелец — заявка уходит на модерацию; после одобрения суперадмином можно создать ресторан
+          Регистрация как владелец — заявка уходит на модерацию; после одобрения администратором системы можно создать ресторан
         </label>
         {err && <p style={{ color: 'coral' }}>{err}</p>}
         <button type="submit">Создать аккаунт</button>

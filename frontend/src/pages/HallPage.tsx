@@ -79,7 +79,9 @@ export default function HallPage() {
   const [hallsList, setHallsList] = useState<HallOpt[]>([]);
   const [hallsLoading, setHallsLoading] = useState(true);
   const editMode = Boolean(
-    user && (user.role === 'admin' || user.role === 'owner') && searchParams.get('edit') === '1'
+    user &&
+      (user.role === 'admin' || user.role === 'owner' || user.role === 'superadmin') &&
+      searchParams.get('edit') === '1'
   );
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -587,7 +589,6 @@ export default function HallPage() {
 }
 
 function HallEditorPanel({ hallId }: { hallId: string }) {
-  const { user } = useAuth();
   const [selected, setSelected] = useState<TableShape | null>(null);
   const [msg, setMsg] = useState('');
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -606,8 +607,9 @@ function HallEditorPanel({ hallId }: { hallId: string }) {
       await api.delete(`/halls/${hallId}/tables/${selected.id}`);
       setSelected(null);
       setReloadNonce((n) => n + 1);
-    } catch {
-      setMsg('Не удалось удалить стол');
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { error?: string } } };
+      setMsg(ax.response?.data?.error || 'Не удалось удалить стол');
     }
   };
 
@@ -685,7 +687,7 @@ function HallEditorPanel({ hallId }: { hallId: string }) {
           reloadNonce={reloadNonce}
         />
       </div>
-      {selected && user && (
+      {selected && (
         <div className="card">
           <h3>Стол №{selected.number}</h3>
           <p>
