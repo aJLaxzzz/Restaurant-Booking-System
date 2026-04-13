@@ -37,13 +37,43 @@ bash scripts/run-k6-loadtest.sh
 |------------|------------|
 | `BASE_URL` | URL API (в Docker-скрипте по умолчанию `http://host.docker.internal:8080`) |
 | `TOKEN` | Опционально: JWT для ручек с авторизацией |
-| `K6_INFLUX_URL` | URL Influx для `--out` (по умолчанию `http://host.docker.internal:8086/k6`) |
+| `K6_INFLUX_URL` | URL Influx для `--out` при запуске через `run-k6-loadtest.sh`: по умолчанию **`http://influxdb:8086/k6`** (тот же compose, без `connection refused`). Локальный k6 без compose: `http://127.0.0.1:8086/k6` |
 
 Если k6 установлен локально (`brew install k6`):
 
 ```bash
 export BASE_URL=http://127.0.0.1:8080
 k6 run --out influxdb=http://127.0.0.1:8086/k6 scripts/k6/booking-load.js
+```
+
+### Файлы отчёта после прогона (HTML + JSON + снимок окружения)
+
+Чтобы не зависеть только от Grafana, можно сохранить артефакты в каталог **`report/loadtest/<дата_время>/`**:
+
+```bash
+chmod +x scripts/run-k6-loadtest-with-report.sh
+bash scripts/run-k6-loadtest-with-report.sh
+```
+
+В каталоге появятся:
+
+| Файл | Содержимое |
+|------|------------|
+| `report.html` | Визуальный отчёт (k6-reporter): карточки, таблицы метрик, вкладки |
+| `aggregates.json` | Сводка метрик по именам (значения + пороги `thresholds.ok`) |
+| `summary.json` | Полный machine-readable summary k6 (`--summary-export`) |
+| `environment-snapshot.txt` | Время, `uname`, кратко `docker version`, `BASE_URL`, факт наличия `TOKEN` без значения |
+| `k6-stdout.log` | Текстовый вывод прогона (как в терминале) |
+
+Откройте **`report.html`** в браузере (локальный файл: в конце скрипт печатает путь `file://...`). Для корректных проверок API должен отвечать на `BASE_URL` (по умолчанию монолит на хосте `:8080`).
+
+Локальный k6 с отчётом в `./out`:
+
+```bash
+export BASE_URL=http://127.0.0.1:8080
+export K6_REPORT_DIR=./out
+mkdir -p out
+k6 run --out influxdb=http://127.0.0.1:8086/k6 --summary-export=./out/summary.json scripts/k6/booking-load.js
 ```
 
 ## 4. Дашборд в Grafana

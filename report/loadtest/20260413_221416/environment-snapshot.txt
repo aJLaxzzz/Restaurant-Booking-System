@@ -1,0 +1,50 @@
+# Restobook — снимок окружения перед нагрузочным прогоном k6
+Время (UTC): 2026-04-13T22:14:16Z
+
+## Хост
+Darwin mbp-tchernykhy-BANK-FW4N9H4WRQ 25.3.0 Darwin Kernel Version 25.3.0: Wed Jan 28 20:51:28 PST 2026; root:xnu-12377.91.3~2/RELEASE_ARM64_T6041 arm64
+
+## Docker (кратко)
+Client: Docker Engine - Community
+ Version:           29.1.1
+ API version:       1.51 (downgraded from 1.52)
+ Go version:        go1.25.4
+ Git commit:        0aedba58c2
+ Built:             Fri Nov 28 11:26:43 2025
+ OS/Arch:           darwin/arm64
+ Context:           desktop-linux
+
+Server: Docker Desktop 4.47.0 (206054)
+ Engine:
+  Version:          28.4.0
+  API version:      1.51 (minimum version 1.24)
+  Go version:       go1.24.7
+  Git commit:       249d679
+  Built:            Wed Sep  3 20:58:53 2025
+  OS/Arch:          linux/arm64
+  Experimental:     false
+ containerd:
+  Version:          1.7.27
+
+## Параметры прогона
+BASE_URL=http://host.docker.internal:8080
+TOKEN=<не задан>
+K6_INFLUX_URL=http://influxdb:8086/k6
+
+## Выходные файлы (после завершения k6)
+- report.html — HTML с графиками/таблицами (k6-reporter)
+- aggregates.json — агрегированные метрики и пороги
+- summary.json — полный machine-readable summary k6
+- k6-stdout.log — консольный вывод прогона
+
+## Завершение прогона
+k6 exit code: 0
+Файлы в каталоге:
+total 136
+drwxr-xr-x@ 7 tchernykhy  staff    224 Apr 14 01:16 .
+drwxr-xr-x@ 3 tchernykhy  staff     96 Apr 14 01:14 ..
+-rw-r--r--  1 tchernykhy  staff   4718 Apr 14 01:16 aggregates.json
+-rw-r--r--@ 1 tchernykhy  staff   1524 Apr 14 01:16 environment-snapshot.txt
+-rw-r--r--@ 1 tchernykhy  staff  17920 Apr 14 01:16 k6-stdout.log
+-rw-r--r--  1 tchernykhy  staff  24931 Apr 14 01:16 report.html
+-rw-r--r--  1 tchernykhy  staff   4266 Apr 14 01:16 summary.json
