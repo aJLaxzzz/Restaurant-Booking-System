@@ -221,7 +221,11 @@ function ClientSelfOrder({
       <p className="my-res-order-total">
         <strong>Итого: {formatRub(total)}</strong>
       </p>
-      {msg && <p className="form-msg">{msg}</p>}
+      {msg && (
+        <div className="pay-flash pay-flash--error" style={{ marginTop: 8 }} role="alert">
+          {msg}
+        </div>
+      )}
     </div>
   );
 }
@@ -312,8 +316,12 @@ export default function MyReservations() {
             </tbody>
           </table>
         </div>
-        {loadErr && <p className="form-msg">{loadErr}</p>}
-        {rowsUnique.length === 0 && !loadErr && <p className="muted">Нет активных броней</p>}
+        {loadErr && (
+          <div className="pay-flash pay-flash--error" role="alert">
+            {loadErr}
+          </div>
+        )}
+        {rowsUnique.length === 0 && !loadErr && <p className="muted">Нет броней</p>}
       </div>
     </div>
   );
@@ -424,9 +432,13 @@ function ReservationBlock({
             )}
           </div>
           {payFeedback && (
-            <p className={payFeedback.kind === 'err' ? 'form-msg' : 'muted compact'} style={{ marginTop: 8, marginBottom: 0 }}>
+            <div
+              className={payFeedback.kind === 'err' ? 'pay-flash pay-flash--error' : 'pay-flash pay-flash--success'}
+              style={{ marginTop: 8 }}
+              role="status"
+            >
               {payFeedback.text}
-            </p>
+            </div>
           )}
         </td>
       </tr>

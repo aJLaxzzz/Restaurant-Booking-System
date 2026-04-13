@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { HallCanvas, TableShape } from '../components/HallCanvas';
+import { tableStatusLabelRu } from '../utils/reservationStatus';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { addHours, format, isValid, parse } from 'date-fns';
@@ -90,7 +91,7 @@ export default function HallPage() {
   const [availabilityById, setAvailabilityById] = useState<Record<string, boolean> | null>(null);
   const [selected, setSelected] = useState<TableShape | null>(null);
   const [comment, setComment] = useState('');
-  const [msg, setMsg] = useState('');
+  const [wizardBanner, setWizardBanner] = useState<{ text: string; tone: 'success' | 'error' | 'info' } | null>(null);
   const [payId, setPayId] = useState<string | null>(null);
   const [loadingAvail, setLoadingAvail] = useState(false);
   const [bookingDefs, setBookingDefs] = useState<BookingDefaults | null>(null);
@@ -219,10 +220,10 @@ export default function HallPage() {
   const loadAvailability = async () => {
     if (!hallId) return;
     setLoadingAvail(true);
-    setMsg('');
+    setWizardBanner(null);
     const bad = validateBookableSlot(date, time);
     if (bad) {
-      setMsg(bad);
+      setWizardBanner({ text: bad, tone: 'info' });
       setLoadingAvail(false);
       return;
     }
@@ -242,7 +243,10 @@ export default function HallPage() {
     } catch (ex: unknown) {
       const ax = ex as { response?: { status?: number; data?: { error?: string } }; message?: string };
       const apiErr = ax.response?.data?.error;
-      setMsg(apiErr || ax.message || 'Не удалось загрузить доступность столов');
+      setWizardBanner({
+        text: apiErr || ax.message || 'Не удалось загрузить доступность столов',
+        tone: 'error',
+      });
       if (ax.response?.status === 400) {
         setStep(1);
         setAvailabilityById(null);
@@ -253,18 +257,18 @@ export default function HallPage() {
   };
 
   const onSelect = async (t: TableShape | null) => {
-    setMsg('');
+    setWizardBanner(null);
     setPayId(null);
     if (!t || !hallId) {
       setSelected(null);
       return;
     }
     if (!user) {
-      setMsg('Войдите, чтобы забронировать стол');
+      setWizardBanner({ text: 'Войдите, чтобы забронировать стол', tone: 'info' });
       return;
     }
     if (user.role !== 'client' && user.role !== 'owner') {
-      setMsg('Бронирование доступно только гостям и владельцу (тест)');
+      setWizardBanner({ text: 'Бронирование доступно только гостям и владельцу.', tone: 'info' });
       return;
     }
     if (selected && selected.id !== t.id) {
@@ -275,16 +279,16 @@ export default function HallPage() {
       setSelected(t);
       setStep(3);
     } catch {
-      setMsg('Не удалось заблокировать стол (занят другим пользователем)');
+      setWizardBanner({ text: 'Не удалось заблокировать стол (занят другим пользователем)', tone: 'error' });
     }
   };
 
   const book = async () => {
     if (!selected || !user) return;
-    setMsg('');
+    setWizardBanner(null);
     const bad = validateBookableSlot(date, time);
     if (bad) {
-      setMsg(bad);
+      setWizardBanner({ text: bad, tone: 'info' });
       return;
     }
     const start = buildStartISOMoscow(date, time);
@@ -304,16 +308,16 @@ export default function HallPage() {
       });
       if (data.no_payment_required) {
         setPayId(null);
-        setMsg('Бронь подтверждена. Депозит не требуется.');
+        setWizardBanner({ text: 'Бронь подтверждена. Депозит не требуется.', tone: 'success' });
       } else if (data.payment_id) {
         setPayId(data.payment_id);
-        setMsg('Бронь создана. Оплатите депозит.');
+        setWizardBanner({ text: 'Бронь создана. Перейдите по ссылке ниже, чтобы оплатить депозит.', tone: 'success' });
       } else {
-        setMsg('Бронь создана.');
+        setWizardBanner({ text: 'Бронь создана.', tone: 'success' });
       }
     } catch (ex: unknown) {
       const m = ex as { response?: { data?: { error?: string } } };
-      setMsg(m.response?.data?.error || 'Ошибка');
+      setWizardBanner({ text: m.response?.data?.error || 'Не удалось создать бронь.', tone: 'error' });
     }
   };
 
@@ -339,7 +343,7 @@ export default function HallPage() {
     setAvailabilityById(null);
     setComment('');
     setPayId(null);
-    setMsg('');
+    setWizardBanner(null);
     setStep(1);
   };
 
@@ -508,7 +512,11 @@ export default function HallPage() {
           >
             {loadingAvail ? 'Загрузка…' : 'Показать свободные столы'}
           </button>
-          {msg && step === 1 && <p className="form-msg">{msg}</p>}
+          {wizardBanner && step === 1 && (
+            <div className={`pay-flash pay-flash--${wizardBanner.tone}`} role="status" style={{ marginTop: '0.75rem' }}>
+              {wizardBanner.text}
+            </div>
+          )}
         </div>
       )}
 
@@ -575,11 +583,15 @@ export default function HallPage() {
                 </button>
               </div>
               {payId && (
-                <p className="success-msg">
-                  <Link to={`/pay/${payId}`}>Перейти к оплате депозита</Link>
-                </p>
+                <div className="pay-deposit-link">
+                  <Link to={`/pay/${payId}`}>Перейти к оплате депозита →</Link>
+                </div>
               )}
-              {msg && <p className="form-msg">{msg}</p>}
+              {wizardBanner && (
+                <div className={`pay-flash pay-flash--${wizardBanner.tone}`} role="status" style={{ marginTop: '0.75rem' }}>
+                  {wizardBanner.text}
+                </div>
+              )}
             </div>
           )}
         </>
@@ -691,7 +703,7 @@ function HallEditorPanel({ hallId }: { hallId: string }) {
         <div className="card">
           <h3>Стол №{selected.number}</h3>
           <p>
-            Статус: <strong>{selected.status}</strong>
+            Статус: <strong>{tableStatusLabelRu(selected.status)}</strong>
           </p>
           <div className="hall-editor-table-form">
             <label>

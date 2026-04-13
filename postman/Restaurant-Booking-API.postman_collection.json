@@ -54,6 +54,22 @@
       "value": "http://localhost:8080"
     }
   ],
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "exec": [
+          "pm.test('HTTP: нет ошибки 5xx', function () {",
+          "  pm.expect(pm.response.code).to.be.below(500);",
+          "});",
+          "pm.test('Ответ получен быстрее 30 с', function () {",
+          "  pm.expect(pm.response.responseTime).to.be.below(30000);",
+          "});"
+        ],
+        "type": "text/javascript"
+      }
+    }
+  ],
   "item": [
     {
       "name": "Health (service root)",
@@ -147,7 +163,18 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "try { var j = pm.response.json(); if (j.access_token) pm.collectionVariables.set('access_token', j.access_token); } catch (e) {}"
+                  "pm.test('Login: статус 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Login: в теле есть access_token', function () {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j).to.have.property('access_token');",
+                  "  pm.expect(j.access_token).to.be.a('string').and.not.empty;",
+                  "});",
+                  "try {",
+                  "  var j = pm.response.json();",
+                  "  if (j && j.access_token) pm.collectionVariables.set('access_token', j.access_token);",
+                  "} catch (e) {}"
                 ],
                 "type": "text/javascript"
               }

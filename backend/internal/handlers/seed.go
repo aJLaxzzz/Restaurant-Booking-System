@@ -27,6 +27,7 @@ func (a *Handlers) Seed(ctx context.Context) {
 	}
 	a.ensureRestaurantTodayTomorrowDemoBookings(ctx, "trattoria-tverskaya", demoTrattoriaNearMarker, "waiter@demo.ru", "waiter2@demo.ru")
 	a.ensureRestaurantTodayTomorrowDemoBookings(ctx, "bella-vista", demoBellaNearMarker, "waiter5@demo.ru", "")
+	a.ensureClientDemoHasBookings(ctx)
 	a.ensureSuperadminUser(ctx)
 	a.ensureDefaultSettings(ctx)
 }
@@ -529,8 +530,8 @@ func (a *Handlers) seedLifeData(ctx context.Context) {
 
 	var specs []spec
 
-	// Прошлое: завершённые визиты (~18)
-	for d := 1; d <= 18; d++ {
+	// Прошлое: завершённые визиты (~18); d с 0 — чтобы client@demo.ru (индекс 0) тоже получил историю.
+	for d := 0; d < 18; d++ {
 		start := now.Add(-day * time.Duration(d+3)).Add(11 * time.Hour)
 		if d%3 == 0 {
 			start = start.Add(6 * time.Hour) // ужин
@@ -576,18 +577,18 @@ func (a *Handlers) seedLifeData(ctx context.Context) {
 	todayEve := time.Date(nowMsk.Year(), nowMsk.Month(), nowMsk.Day(), 18, 30, 0, 0, loc).UTC()
 
 	specs = append(specs, spec{
-		ti: 0, ci: 1, start: todayLunch, end: todayLunch.Add(slot), status: "seated", guests: 3,
+		ti: 0, ci: 0, start: todayLunch, end: todayLunch.Add(slot), status: "seated", guests: 3,
 		comment: "детское кресло", waiter: &wid1, createdBy: "client",
 		seated: ptrTime(todayLunch.Add(3 * time.Minute)), payStatus: "succeeded",
 	})
 	specs = append(specs, spec{
-		ti: 1, ci: 2, start: todayEve, end: todayEve.Add(slot), status: "in_service", guests: 4,
+		ti: 1, ci: 0, start: todayEve, end: todayEve.Add(slot), status: "in_service", guests: 4,
 		comment: "день рождения", waiter: &wid1, createdBy: "client",
 		seated: ptrTime(todayEve.Add(2 * time.Minute)), svcStart: ptrTime(todayEve.Add(20 * time.Minute)),
 		payStatus: "succeeded",
 	})
 	specs = append(specs, spec{
-		ti: 2, ci: 3, start: todayLunch.Add(3 * time.Hour), end: todayLunch.Add(3*time.Hour + slot), status: "confirmed", guests: 2,
+		ti: 2, ci: 0, start: todayLunch.Add(3 * time.Hour), end: todayLunch.Add(3*time.Hour + slot), status: "confirmed", guests: 2,
 		comment: "", waiter: &wid2, createdBy: "client", payStatus: "",
 	})
 
@@ -1026,6 +1027,56 @@ func (a *Handlers) ensureRestaurantTodayTomorrowDemoBookings(ctx context.Context
 	if inserted > 0 {
 		log.Printf("демо: %s — %d броней на сегодня/завтра (МСК)", slug, inserted)
 	}
+}
+
+// ensureClientDemoHasBookings — если у client@demo.ru нет ни одной брони (сид не отработал / сброс), создаём минимум одну подтверждённую.
+func (a *Handlers) ensureClientDemoHasBookings(ctx context.Context) {
+	var uid uuid.UUID
+	if err := a.Pool.QueryRow(ctx, `SELECT id FROM users WHERE lower(email)=lower($1)`, "client@demo.ru").Scan(&uid); err != nil {
+		return
+	}
+	var n int
+	_ = a.Pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM reservations WHERE user_id=$1`, uid).Scan(&n)
+	if n > 0 {
+		return
+	}
+	var tid uuid.UUID
+	err := a.Pool.QueryRow(ctx, `
+		SELECT t.id FROM tables t
+		JOIN halls h ON h.id = t.hall_id
+		JOIN restaurants r ON r.id = h.restaurant_id
+		WHERE r.slug = 'trattoria-tverskaya'
+		ORDER BY t.table_number
+		LIMIT 1`).Scan(&tid)
+	if err != nil {
+		_ = a.Pool.QueryRow(ctx, `SELECT id FROM tables ORDER BY id LIMIT 1`).Scan(&tid)
+		if err != nil {
+			log.Printf("ensureClientDemoHasBookings: нет столов: %v", err)
+			return
+		}
+	}
+	loc, errLoc := time.LoadLocation("Europe/Moscow")
+	if errLoc != nil {
+		loc = time.UTC
+	}
+	now := time.Now().In(loc)
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Add(30 * time.Hour).Add(13 * time.Hour)
+	end := start.Add(2 * time.Hour)
+	var rid uuid.UUID
+	err = a.Pool.QueryRow(ctx, `
+		INSERT INTO reservations (
+			table_id, user_id, start_time, end_time, guest_count, status, comment, created_by
+		) VALUES ($1,$2,$3,$4,2,'confirmed','Демо-бронь (автодобавление)','client')
+		RETURNING id`,
+		tid, uid, start.UTC(), end.UTC()).Scan(&rid)
+	if err != nil {
+		log.Printf("ensureClientDemoHasBookings: %v", err)
+		return
+	}
+	_, _ = a.Pool.Exec(ctx, `
+		INSERT INTO payments (reservation_id, amount_kopecks, status, idempotency_key, gateway_payment_id)
+		VALUES ($1,50000,'succeeded',$2,'demo_autofill')`,
+		rid, uuid.New())
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }

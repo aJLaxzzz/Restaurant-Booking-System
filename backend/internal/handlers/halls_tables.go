@@ -2,14 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (a *Handlers) handleTableCreate(w http.ResponseWriter, r *http.Request) {
@@ -108,13 +106,35 @@ func (a *Handlers) handleTableDelete(w http.ResponseWriter, r *http.Request) {
 		a.err(w, http.StatusBadRequest, "стол")
 		return
 	}
-	ct, err := a.Pool.Exec(r.Context(), `DELETE FROM tables WHERE id=$1 AND hall_id=$2`, tid, hallID)
+	ctx := r.Context()
+	tx, err := a.Pool.Begin(ctx)
 	if err != nil {
-		var pe *pgconn.PgError
-		if errors.As(err, &pe) && pe.Code == "23503" {
-			a.err(w, http.StatusConflict, "нельзя удалить стол: есть связанные брони. Отмените брони или перенесите их на другой стол.")
-			return
-		}
+		a.err(w, http.StatusInternalServerError, "БД")
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	/** Завершённые/отменённые брони не мешают удалить стол из схемы — их снимаем вместе со столом (CASCADE). Активные цепочки — нет. */
+	var active int
+	err = tx.QueryRow(ctx, `
+		SELECT COUNT(*)::int FROM reservations
+		WHERE table_id=$1 AND status NOT IN (
+			'completed','cancelled_by_client','cancelled_by_admin','no_show','cancelled'
+		)`, tid).Scan(&active)
+	if err != nil {
+		a.err(w, http.StatusInternalServerError, "БД")
+		return
+	}
+	if active > 0 {
+		a.err(w, http.StatusConflict, "нельзя удалить стол: есть незавершённые брони (ожидание оплаты, подтверждённые, посадка и т.д.). Отмените или перенесите их.")
+		return
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM reservations WHERE table_id=$1`, tid); err != nil {
+		a.err(w, http.StatusInternalServerError, "не удалось удалить связанные брони")
+		return
+	}
+	ct, err := tx.Exec(ctx, `DELETE FROM tables WHERE id=$1 AND hall_id=$2`, tid, hallID)
+	if err != nil {
 		a.err(w, http.StatusInternalServerError, "не удалось удалить стол")
 		return
 	}
@@ -122,6 +142,11 @@ func (a *Handlers) handleTableDelete(w http.ResponseWriter, r *http.Request) {
 		a.err(w, http.StatusNotFound, "не найден")
 		return
 	}
+	if err := tx.Commit(ctx); err != nil {
+		a.err(w, http.StatusInternalServerError, "БД")
+		return
+	}
+	_ = a.RDB.Del(ctx, "table:"+tid.String()+":lock").Err()
 	a.emitHallEvent(hallID, map[string]any{"event": "hall.layout_updated", "timestamp": time.Now().UTC().Format(time.RFC3339)})
 	w.WriteHeader(http.StatusNoContent)
 }

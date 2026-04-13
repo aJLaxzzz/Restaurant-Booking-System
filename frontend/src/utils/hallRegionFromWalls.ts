@@ -1,10 +1,15 @@
-/** Полигон замкнутой области по сетке: стены = барьер, край холста = барьер, BFS от клика, контур компоненты. */
+/** Зона по клику: связная компонента свободных клеток (стены + край холста = барьер), контур — ортогональная обводка (внешний контур + дыры при «пончике»). */
 
-import { polygonArea } from './geometry';
+import { pointInPolygon, polygonArea } from './geometry';
 
 type Wall = Record<string, number>;
 type WallArc = { type: 'arc'; cx: number; cy: number; r: number; a0: number; a1: number };
 type WallQuad = { type: 'quad'; x1: number; y1: number; qx: number; qy: number; x2: number; y2: number };
+
+export type FloodRegionPolygon = {
+  outer: number[];
+  holes: number[][];
+};
 
 function distSqPointSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
   const dx = x2 - x1;
@@ -24,7 +29,6 @@ function distSqPointSegment(px: number, py: number, x1: number, y1: number, x2: 
   return ex * ex + ey * ey;
 }
 
-/** Расстояние до отрезка, продолженного на `cap` с обоих концов — закрывает микро-щели в углах и у стыков «внутренняя стена / периметр». */
 function distSqPointSegmentCapped(
   px: number,
   py: number,
@@ -112,84 +116,145 @@ function cellBlocked(
   return false;
 }
 
-const ptKey = (x: number, y: number) => `${Math.round(x * 100) / 100},${Math.round(y * 100) / 100}`;
-
-function parseKey(k: string): { x: number; y: number } {
-  const [xs, ys] = k.split(',');
-  return { x: parseFloat(xs), y: parseFloat(ys) };
+function cornerKey(gi: number, gj: number): string {
+  return `${gi},${gj}`;
 }
 
-/** Контур компоненты сетки: рёбра между посещённой и непосещённой ячейкой. */
-function boundaryPolygonFromVisited(
-  visited: Set<string>,
-  nx: number,
-  ny: number,
-  cs: number,
-): number[] | null {
-  type Edge = { a: string; b: string };
-  const edges: Edge[] = [];
+function buildBoundaryAdj(visited: Set<string>, nx: number, ny: number): Map<string, string[]> {
   const vis = (i: number, j: number) => i >= 0 && j >= 0 && i < nx && j < ny && visited.has(`${i},${j}`);
+
+  const adj = new Map<string, string[]>();
+  const addEdge = (a: string, b: string) => {
+    if (a === b) return;
+    if (!adj.has(a)) adj.set(a, []);
+    if (!adj.has(b)) adj.set(b, []);
+    const la = adj.get(a)!;
+    if (!la.includes(b)) la.push(b);
+    const lb = adj.get(b)!;
+    if (!lb.includes(a)) lb.push(a);
+  };
 
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
       if (!visited.has(`${i},${j}`)) continue;
-      const x0 = i * cs;
-      const y0 = j * cs;
-      const x1 = (i + 1) * cs;
-      const y1 = (j + 1) * cs;
+      const x0 = i;
+      const y0 = j;
+      const x1 = i + 1;
+      const y1 = j + 1;
       if (!vis(i, j - 1)) {
-        edges.push({ a: ptKey(x0, y0), b: ptKey(x1, y0) });
+        addEdge(cornerKey(x0, y0), cornerKey(x1, y0));
       }
       if (!vis(i + 1, j)) {
-        edges.push({ a: ptKey(x1, y0), b: ptKey(x1, y1) });
+        addEdge(cornerKey(x1, y0), cornerKey(x1, y1));
       }
       if (!vis(i, j + 1)) {
-        edges.push({ a: ptKey(x1, y1), b: ptKey(x0, y1) });
+        addEdge(cornerKey(x1, y1), cornerKey(x0, y1));
       }
       if (!vis(i - 1, j)) {
-        edges.push({ a: ptKey(x0, y1), b: ptKey(x0, y0) });
+        addEdge(cornerKey(x0, y1), cornerKey(x0, y0));
       }
     }
   }
+  return adj;
+}
 
-  if (edges.length === 0) return null;
-
-  const adj = new Map<string, string[]>();
-  for (const { a, b } of edges) {
-    if (!adj.has(a)) adj.set(a, []);
-    if (!adj.has(b)) adj.set(b, []);
-    adj.get(a)!.push(b);
-    adj.get(b)!.push(a);
+function connectedComponents(adj: Map<string, string[]>): string[][] {
+  const seen = new Set<string>();
+  const out: string[][] = [];
+  for (const v of adj.keys()) {
+    if (seen.has(v)) continue;
+    const comp: string[] = [];
+    const stack = [v];
+    seen.add(v);
+    while (stack.length) {
+      const cur = stack.pop()!;
+      comp.push(cur);
+      for (const u of adj.get(cur) || []) {
+        if (!seen.has(u)) {
+          seen.add(u);
+          stack.push(u);
+        }
+      }
+    }
+    out.push(comp);
   }
+  return out;
+}
 
-  const start = edges[0].a;
-  let prev: string | null = null;
-  let cur = start;
-  const pathKeys: string[] = [cur];
-  const maxSteps = edges.length * 6 + 20;
-  for (let step = 0; step < maxSteps; step++) {
-    const neigh = adj.get(cur);
-    if (!neigh || neigh.length === 0) break;
-    const next = neigh.find((n) => n !== prev);
-    if (next == null) break;
-    pathKeys.push(next);
-    prev = cur;
-    cur = next;
-    if (cur === start && pathKeys.length > 2) break;
+/**
+ * Один простой цикл по компоненте граничного графа: у каждой вершины степень 2.
+ */
+function extractSimpleCycle(adj: Map<string, string[]>, comp: string[]): string[] | null {
+  const set = new Set(comp);
+  for (const v of comp) {
+    const deg = (adj.get(v) || []).filter((u) => set.has(u)).length;
+    if (deg !== 2) return null;
   }
+  if (comp.length < 3) return null;
 
-  if (pathKeys.length < 4) return null;
+  const start = [...comp].sort((a, b) => a.localeCompare(b))[0];
+  const nbs = (adj.get(start) || []).filter((u) => set.has(u)).sort((a, b) => a.localeCompare(b));
+  if (nbs.length !== 2) return null;
 
-  const poly: number[] = [];
-  for (let i = 0; i < pathKeys.length - 1; i++) {
-    const { x, y } = parseKey(pathKeys[i]);
-    poly.push(x, y);
+  for (const first of nbs) {
+    const path: string[] = [start];
+    let prev = start;
+    let cur = first;
+    for (let iter = 0; iter < comp.length + 8; iter++) {
+      const nextOpts = (adj.get(cur) || []).filter((u) => u !== prev);
+      if (nextOpts.length !== 1) break;
+      const next = nextOpts[0];
+      if (next === start) {
+        path.push(cur);
+        if (path.length === comp.length) return path;
+        break;
+      }
+      path.push(cur);
+      prev = cur;
+      cur = next;
+    }
   }
-  if (poly.length >= 6) return poly;
   return null;
 }
 
-/** Если обход рёбер сетки не замкнулся (т-junction и т.п.) — прямоугольник по охвату посещённых клеток. */
+function keysPathToWorldPoly(path: string[], cs: number): number[] {
+  const poly: number[] = [];
+  for (const k of path) {
+    const [gi, gj] = k.split(',').map(Number);
+    poly.push(gi * cs, gj * cs);
+  }
+  return poly;
+}
+
+/**
+ * Внешний контур (макс. площадь) и внутренние границы дыр ортогональной компоненты клеток.
+ */
+function boundaryPolygonsFromVisited(
+  visited: Set<string>,
+  nx: number,
+  ny: number,
+  cs: number,
+): FloodRegionPolygon | null {
+  const adj = buildBoundaryAdj(visited, nx, ny);
+  if (adj.size === 0) return null;
+
+  const comps = connectedComponents(adj);
+  const polys: number[][] = [];
+
+  for (const comp of comps) {
+    const cyc = extractSimpleCycle(adj, comp);
+    if (!cyc) {
+      return null;
+    }
+    const poly = keysPathToWorldPoly(cyc, cs);
+    if (poly.length >= 6) polys.push(poly);
+  }
+
+  if (polys.length === 0) return null;
+  polys.sort((a, b) => polygonArea(b) - polygonArea(a));
+  return { outer: polys[0], holes: polys.slice(1) };
+}
+
 function bboxPolygonFromVisited(visited: Set<string>, cs: number): number[] | null {
   let mini = Infinity,
     maxi = -Infinity,
@@ -212,7 +277,8 @@ function bboxPolygonFromVisited(visited: Set<string>, cs: number): number[] | nu
 }
 
 /**
- * Возвращает замкнутый полигон области, в которой лежит (worldX, worldY), ограниченной стенами и краем холста.
+ * Полигон связной области, в которой лежит клик: BFS по клеткам, барьеры — стены и край холста.
+ * roomClipPoly — дополнительное ограничение (контур помещения), чтобы не перетекать в соседнюю комнату.
  */
 export function floodRegionPolygonFromWalls(
   worldX: number,
@@ -222,17 +288,18 @@ export function floodRegionPolygonFromWalls(
   walls: Wall[],
   wallArcs: WallArc[],
   wallQuads: WallQuad[],
-): number[] | null {
+  roomClipPoly: number[] | null = null,
+): FloodRegionPolygon | null {
   const cs = 12;
   const wallR = 4;
   const wallR2 = wallR * wallR;
-  /** Продление сегмента для hit-test — устраняет протекание BFS в углах и при общих сторонах вложенных прямоугольников. */
   const segmentCap = Math.max(10, wallR * 2.5);
   const nx = Math.max(1, Math.floor(stageW / cs));
   const ny = Math.max(1, Math.floor(stageH / cs));
   const segs = segmentsFromGeometry(walls, wallArcs, wallQuads);
-  /** Без сегментов стен остаётся только край холста — BFS зальёт почти весь лист («зона по сетке»). */
-  if (segs.length === 0) return null;
+
+  const inRoom = (cx: number, cy: number) =>
+    !roomClipPoly || roomClipPoly.length < 6 || pointInPolygon(cx, cy, roomClipPoly);
 
   let ix = Math.floor(worldX / cs);
   let iy = Math.floor(worldY / cs);
@@ -241,7 +308,7 @@ export function floodRegionPolygonFromWalls(
 
   const startCx = (ix + 0.5) * cs;
   const startCy = (iy + 0.5) * cs;
-  if (cellBlocked(startCx, startCy, segs, wallR2, stageW, stageH, segmentCap)) {
+  if (!inRoom(startCx, startCy) || cellBlocked(startCx, startCy, segs, wallR2, stageW, stageH, segmentCap)) {
     const dirs = [
       [0, 0],
       [1, 0],
@@ -259,7 +326,7 @@ export function floodRegionPolygonFromWalls(
       const jy = Math.max(0, Math.min(ny - 1, iy + dy));
       const cx = (jx + 0.5) * cs;
       const cy = (jy + 0.5) * cs;
-      if (!cellBlocked(cx, cy, segs, wallR2, stageW, stageH, segmentCap)) {
+      if (inRoom(cx, cy) && !cellBlocked(cx, cy, segs, wallR2, stageW, stageH, segmentCap)) {
         ix = jx;
         iy = jy;
         found = true;
@@ -287,7 +354,7 @@ export function floodRegionPolygonFromWalls(
       if (visited.has(k)) continue;
       const cx = (ni + 0.5) * cs;
       const cy = (nj + 0.5) * cs;
-      if (cellBlocked(cx, cy, segs, wallR2, stageW, stageH, segmentCap)) continue;
+      if (!inRoom(cx, cy) || cellBlocked(cx, cy, segs, wallR2, stageW, stageH, segmentCap)) continue;
       visited.add(k);
       q.push([ni, nj]);
     }
@@ -295,14 +362,17 @@ export function floodRegionPolygonFromWalls(
 
   if (visited.size < 2) return null;
 
-  let poly = boundaryPolygonFromVisited(visited, nx, ny, cs);
-  if (!poly || poly.length < 6) {
-    poly = bboxPolygonFromVisited(visited, cs);
+  let region = boundaryPolygonsFromVisited(visited, nx, ny, cs);
+  if (!region) {
+    const bbox = bboxPolygonFromVisited(visited, cs);
+    if (!bbox || bbox.length < 6) return null;
+    region = { outer: bbox, holes: [] };
   }
-  if (!poly || poly.length < 6) return null;
-  const a = polygonArea(poly);
-  /** Отсекаем только явную «заливку почти всего листа» без нормального контура (остальное — в т.ч. большая комната). */
-  if (a / (stageW * stageH) > 0.9995) return null;
 
-  return poly;
+  const { outer, holes } = region;
+  let eff = polygonArea(outer);
+  for (const h of holes) eff -= polygonArea(h);
+  if (eff <= 0 || eff / (stageW * stageH) > 0.9995) return null;
+
+  return region;
 }

@@ -211,10 +211,39 @@ func (a *Handlers) handlePaymentGet(w http.ResponseWriter, r *http.Request) {
 		a.err(w, http.StatusForbidden, "нет доступа")
 		return
 	}
-	a.json(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"id": pid.String(), "reservation_id": resID.String(), "amount_kopecks": amount,
 		"status": status, "idempotency_key": idem.String(), "purpose": purpose,
-	})
+	}
+	// Актуальная доплата по счёту: заказ мог вырасти после создания pending-платежа; депозит зачитается в сумму.
+	if purpose == "tab" && status == "pending" {
+		var oid uuid.UUID
+		var ost string
+		if err := a.Pool.QueryRow(r.Context(), `
+			SELECT id, status FROM reservation_orders WHERE reservation_id=$1`, resID).Scan(&oid, &ost); err == nil && ost == "open" {
+			var tot, dep int
+			_ = a.Pool.QueryRow(r.Context(), `
+				SELECT COALESCE(SUM(l.quantity * m.price_kopecks),0)::int
+				FROM order_lines l
+				JOIN menu_items m ON m.id = l.menu_item_id
+				WHERE l.order_id=$1`, oid).Scan(&tot)
+			_ = a.Pool.QueryRow(r.Context(), `
+				SELECT COALESCE(SUM(amount_kopecks),0)::int FROM payments
+				WHERE reservation_id=$1 AND status='succeeded' AND COALESCE(purpose,'deposit')='deposit'`, resID).Scan(&dep)
+			tab := tot - dep
+			if tab < 0 {
+				tab = 0
+			}
+			amount = tab
+			out["amount_kopecks"] = amount
+			out["order_total_kopecks"] = tot
+			out["deposit_credited_kopecks"] = dep
+			_, _ = a.Pool.Exec(r.Context(), `
+				UPDATE payments SET amount_kopecks=$2, updated_at=NOW()
+				WHERE id=$1 AND status='pending'`, pid, tab)
+		}
+	}
+	a.json(w, http.StatusOK, out)
 }
 
 func (a *Handlers) handleRefund(w http.ResponseWriter, r *http.Request) {

@@ -78,7 +78,7 @@ export function polygonVerticesInsideOrOnEdge(
   return true;
 }
 
-function polygonCentroid(poly: number[]): { x: number; y: number } {
+export function polygonCentroid(poly: number[]): { x: number; y: number } {
   let sx = 0;
   let sy = 0;
   const n = poly.length / 2;
@@ -87,6 +87,24 @@ function polygonCentroid(poly: number[]): { x: number; y: number } {
     sy += poly[i + 1];
   }
   return { x: sx / n, y: sy / n };
+}
+
+/** Точка в кольце: внутри outer и ни в одной из дыр (замкнутые полигоны). */
+export function pointInPolygonWithHoles(x: number, y: number, outer: number[], holes: number[][]): boolean {
+  if (!pointInPolygon(x, y, outer)) return false;
+  for (const h of holes) {
+    if (h.length >= 6 && pointInPolygon(x, y, h)) return false;
+  }
+  return true;
+}
+
+/** Площадь «пончика»: outer минус дыры. */
+export function effectivePolygonArea(outer: number[], holes: number[][]): number {
+  let a = polygonArea(outer);
+  for (const h of holes) {
+    a -= polygonArea(h);
+  }
+  return Math.max(0, a);
 }
 
 function vertexInsideOrNearOuterBoundary(x: number, y: number, outer: number[], tol2: number): boolean {

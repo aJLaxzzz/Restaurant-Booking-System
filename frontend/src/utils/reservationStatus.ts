@@ -15,3 +15,51 @@ export function reservationStatusLabelRu(code: string): string {
   };
   return map[c] ?? c;
 }
+
+/** Статус платежа (payments.status). */
+export function paymentStatusLabelRu(code: string): string {
+  const c = (code || '').trim();
+  const map: Record<string, string> = {
+    pending: 'Ожидает оплаты',
+    succeeded: 'Оплачено',
+    refunded: 'Возврат оформлен',
+    failed: 'Оплата не прошла',
+  };
+  return map[c] ?? c;
+}
+
+/** Статус стола на схеме зала (tables.status). */
+export function tableStatusLabelRu(code: string): string {
+  const c = (code || '').trim();
+  const map: Record<string, string> = {
+    available: 'Свободен',
+    occupied: 'Занят',
+    selected: 'Выбран',
+    blocked: 'Заблокирован',
+    locked_by_other: 'Занят другим гостем',
+  };
+  return map[c] ?? c;
+}
+
+/** Статус учётной записи (users.status). */
+export function userAccountStatusLabelRu(code: string): string {
+  const c = (code || '').trim();
+  const map: Record<string, string> = {
+    active: 'Активен',
+    blocked: 'Заблокирован',
+  };
+  return map[c] ?? c;
+}
+
+/** Роль пользователя для подписей в интерфейсе (значение в API без изменений). */
+export function userRoleLabelRu(role: string): string {
+  const r = (role || '').trim();
+  const map: Record<string, string> = {
+    client: 'Гость',
+    owner: 'Владелец',
+    admin: 'Администратор',
+    waiter: 'Официант',
+    superadmin: 'Администратор системы',
+  };
+  return map[r] ?? r;
+}

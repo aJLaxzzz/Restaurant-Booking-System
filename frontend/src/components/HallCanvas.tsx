@@ -7,7 +7,14 @@ import { useHallWebSocket } from '../hooks/useHallWebSocket';
 import { HallAddTableModal, type AddTableForm } from './HallAddTableModal';
 import { HallCanvasGrid } from './HallCanvasGrid';
 import { HallZoneFillModal } from './HallZoneFillModal';
-import { pointInPolygon, polygonArea, reversePolygonRingFlat, zoneNamedDirectHolePolys } from '../utils/geometry';
+import {
+  effectivePolygonArea,
+  pointInPolygon,
+  pointInPolygonWithHoles,
+  polygonArea,
+  reversePolygonRingFlat,
+  zoneNamedDirectHolePolys,
+} from '../utils/geometry';
 import { floodRegionPolygonFromWalls } from '../utils/hallRegionFromWalls';
 import { HallCanvasWallsLayer, type WallQuad } from './HallCanvasWallsLayer';
 
@@ -206,6 +213,7 @@ export function HallCanvas({
   const [wallQuadDraft, setWallQuadDraft] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const [zoneFillModalOpen, setZoneFillModalOpen] = useState(false);
   const [zoneFillPoints, setZoneFillPoints] = useState<number[]>([]);
+  const [zoneFillHoles, setZoneFillHoles] = useState<number[][]>([]);
   const [zoneFillLabelPos, setZoneFillLabelPos] = useState({ x: 0, y: 0 });
   const [, setUndoStack] = useState<UndoSnap[]>([]);
   const [stageW, setStageW] = useState(DEFAULT_STAGE_W);
@@ -755,6 +763,7 @@ export function HallCanvas({
       {
         type: 'zone_named',
         points: [...zoneFillPoints],
+        ...(zoneFillHoles.length > 0 ? { polygonHoles: zoneFillHoles.map((h) => [...h]) } : {}),
         label,
         fill,
         stroke,
@@ -807,14 +816,23 @@ export function HallCanvas({
     }
 
     if (placeMode === 'zone_fill') {
-      type ZHit = { poly: number[]; area: number };
+      type ZHit = { poly: number[]; holes: number[][]; area: number };
       const decHits: ZHit[] = [];
-      for (const d of decorations) {
+      for (let di = 0; di < decorations.length; di++) {
+        const d = decorations[di];
         const typ = String(d.type || '');
         if (typ === 'zone_polygon' || typ === 'zone_named') {
           const pts = (d.points as number[]) || [];
-          if (pts.length >= 6 && pointInPolygon(px, py, pts)) {
-            decHits.push({ poly: [...pts], area: polygonArea(pts) });
+          if (pts.length < 6) continue;
+          const intrinsic = typ === 'zone_named' ? ((d as { polygonHoles?: number[][] }).polygonHoles ?? []) : [];
+          const fromNested = typ === 'zone_named' ? (zoneNamedHoleMap.get(di) ?? []) : [];
+          const ph = typ === 'zone_named' ? [...intrinsic, ...fromNested] : [];
+          if (pointInPolygonWithHoles(px, py, pts, ph)) {
+            decHits.push({
+              poly: [...pts],
+              holes: ph.map((h) => [...h]),
+              area: effectivePolygonArea(pts, ph),
+            });
           }
         }
       }
@@ -822,24 +840,35 @@ export function HallCanvas({
       for (const room of rooms) {
         const poly = room.polygon;
         if (pointInPolygon(px, py, poly)) {
-          roomHits.push({ poly: [...poly], area: polygonArea(poly) });
+          roomHits.push({ poly: [...poly], holes: [], area: effectivePolygonArea(poly, []) });
         }
       }
-      const hits: ZHit[] = [];
-      if (decHits.length > 0) {
-        // Любая зона из декора: не подмешиваем flood — BFS по сетке даёт артефакты у косых стен и может «перебить» меньшую зону по площади.
-        hits.push(...decHits, ...roomHits);
-      } else {
-        const fromWalls = floodRegionPolygonFromWalls(px, py, stageW, stageH, walls, wallArcs, wallQuads);
-        if (fromWalls && fromWalls.length >= 6) {
-          hits.push({ poly: [...fromWalls], area: polygonArea(fromWalls) });
+      const hits: ZHit[] = [...decHits, ...roomHits];
+      let roomClip: number[] | null = null;
+      let roomClipArea = Infinity;
+      for (const room of rooms) {
+        const poly = room.polygon;
+        if (poly.length >= 6 && pointInPolygon(px, py, poly)) {
+          const ar = polygonArea(poly);
+          if (ar < roomClipArea) {
+            roomClipArea = ar;
+            roomClip = poly;
+          }
         }
-        hits.push(...roomHits);
+      }
+      const fromWalls = floodRegionPolygonFromWalls(px, py, stageW, stageH, walls, wallArcs, wallQuads, roomClip);
+      if (fromWalls && fromWalls.outer.length >= 6) {
+        hits.push({
+          poly: [...fromWalls.outer],
+          holes: fromWalls.holes.map((h) => [...h]),
+          area: effectivePolygonArea(fromWalls.outer, fromWalls.holes),
+        });
       }
       if (hits.length > 0) {
         hits.sort((a, b) => a.area - b.area);
         const best = hits[0];
         setZoneFillPoints(best.poly);
+        setZoneFillHoles(best.holes);
         setZoneFillLabelPos({ x: px, y: py });
         setZoneFillModalOpen(true);
       }
@@ -1714,7 +1743,8 @@ export function HallCanvas({
                     captureUndo();
                     updateDecoration(i, { label: trimmed });
                   };
-                  const holes = zoneNamedHoleMap.get(i) ?? [];
+                  const intrinsicHoles = ((dec as { polygonHoles?: number[][] }).polygonHoles) ?? [];
+                  const holes = [...intrinsicHoles, ...(zoneNamedHoleMap.get(i) ?? [])];
                   const zStrokeW = sel ? 3 : 2;
                   return (
                     <Group key={`d-${i}`}>

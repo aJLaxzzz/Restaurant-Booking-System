@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
+import {
+  reservationStatusLabelRu,
+  userAccountStatusLabelRu,
+  userRoleLabelRu,
+} from '../utils/reservationStatus';
 
 type Tab =
   | 'applications'
@@ -745,15 +750,15 @@ function UserEditRow({
         <select className="compact-select" value={role} onChange={(e) => setRole(e.target.value)}>
           {['client', 'owner', 'admin', 'waiter', 'superadmin'].map((r) => (
             <option key={r} value={r}>
-              {r === 'superadmin' ? 'Администратор системы' : r}
+              {userRoleLabelRu(r)}
             </option>
           ))}
         </select>
       </td>
       <td>
         <select className="compact-select" value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="active">active</option>
-          <option value="blocked">blocked</option>
+          <option value="active">{userAccountStatusLabelRu('active')}</option>
+          <option value="blocked">{userAccountStatusLabelRu('blocked')}</option>
         </select>
       </td>
       <td>
@@ -824,7 +829,9 @@ function ReservationSuperRow({
       <td>
         {x.full_name} <span className="muted">{x.phone}</span>
       </td>
-      <td>{x.status}</td>
+      <td>
+        <span className="status-pill">{reservationStatusLabelRu(x.status)}</span>
+      </td>
       <td>
         <div className="field-block tight">
           <label className="muted compact">Гостей</label>

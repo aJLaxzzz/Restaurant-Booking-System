@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -19,6 +20,8 @@ import (
 )
 
 func main() {
+	resetReservations := flag.Bool("reset-reservations", false, "очистить брони и сбросить столы перед Seed (как scripts/reset_reservations.sql)")
+	flag.Parse()
 	cfg := config.Load()
 	ctx := context.Background()
 
@@ -52,6 +55,11 @@ func main() {
 
 	hub := wshub.New()
 	a := handlers.NewHandlers(pool, rdb, hub, cfg)
+	if *resetReservations || os.Getenv("RESET_DEMO_RESERVATIONS") == "1" {
+		if err := a.ResetDemoReservations(ctx); err != nil {
+			log.Fatal("reset demo reservations: ", err)
+		}
+	}
 	a.Seed(ctx)
 
 	srv := &http.Server{Addr: cfg.Addr, Handler: a.RouterMonolith()}

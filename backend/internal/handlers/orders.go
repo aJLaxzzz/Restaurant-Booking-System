@@ -384,6 +384,10 @@ func (a *Handlers) handleReservationOrderCheckout(w http.ResponseWriter, r *http
 	err = a.Pool.QueryRow(r.Context(), `
 		SELECT id FROM payments WHERE reservation_order_id=$1 AND status='pending'`, oid).Scan(&existing)
 	if err == nil {
+		// Строка платежа создана раньше; сумма на странице /pay и в БД должна совпадать с актуальным заказом.
+		_, _ = a.Pool.Exec(r.Context(), `
+			UPDATE payments SET amount_kopecks=$2, updated_at=NOW()
+			WHERE id=$1 AND status='pending'`, existing, tabCharge)
 		a.json(w, http.StatusOK, map[string]any{
 			"payment_id":               existing.String(),
 			"amount_kopecks":           tabCharge,
