@@ -4,6 +4,7 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
+RUN npm config set registry https://registry.npmjs.org
 RUN npm ci
 COPY . .
 ARG VITE_PUBLIC_ORIGIN=

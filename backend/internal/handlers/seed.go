@@ -19,17 +19,172 @@ func (a *Handlers) Seed(ctx context.Context) {
 	// (один ресторан, остальные INSERT с тем же slug упали) — иначе ветка hallCount==0 никогда
 	// не вызывала ensureExtra, и на главной оставался один ресторан.
 	a.ensureExtraDemoRestaurants(ctx)
+	a.ensureDemoRestaurantCoords(ctx)
+	a.ensureTrattoriaSingleHall(ctx)
 	a.ensureTrattoriaMainHallDemoZonesLayout(ctx)
 	var resCount int
 	_ = a.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM reservations`).Scan(&resCount)
 	if resCount == 0 {
 		a.seedLifeData(ctx)
 	}
+	a.ensureDemoRatings(ctx)
 	a.ensureRestaurantTodayTomorrowDemoBookings(ctx, "trattoria-tverskaya", demoTrattoriaNearMarker, "waiter@demo.ru", "waiter2@demo.ru")
 	a.ensureRestaurantTodayTomorrowDemoBookings(ctx, "bella-vista", demoBellaNearMarker, "waiter5@demo.ru", "")
 	a.ensureClientDemoHasBookings(ctx)
 	a.ensureSuperadminUser(ctx)
 	a.ensureDefaultSettings(ctx)
+}
+
+// ensureTrattoriaSingleHall — делает «1 ресторан = 1 зал» для Траттории:
+// если найден второй зал и по нему нет броней — удаляем его (и таблицы каскадом).
+// На БД с живыми бронями не ломаем данные.
+func (a *Handlers) ensureTrattoriaSingleHall(ctx context.Context) {
+	var restID uuid.UUID
+	if err := a.Pool.QueryRow(ctx, `SELECT id FROM restaurants WHERE slug='trattoria-tverskaya' LIMIT 1`).Scan(&restID); err != nil {
+		return
+	}
+	rows, err := a.Pool.Query(ctx, `SELECT id FROM halls WHERE restaurant_id=$1 ORDER BY created_at ASC`, restID)
+	if err != nil {
+		return
+	}
+	var halls []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		_ = rows.Scan(&id)
+		halls = append(halls, id)
+	}
+	rows.Close()
+	if len(halls) <= 1 {
+		return
+	}
+	// Оставляем самый первый зал, остальные приводим к удалению (с чисткой зависимостей),
+	// чтобы для демо был принцип «1 ресторан = 1 зал».
+	for _, hid := range halls[1:] {
+		// 1) найти все столы зала
+		tabRows, err := a.Pool.Query(ctx, `SELECT id FROM tables WHERE hall_id=$1`, hid)
+		if err != nil {
+			continue
+		}
+		var tids []uuid.UUID
+		for tabRows.Next() {
+			var tid uuid.UUID
+			_ = tabRows.Scan(&tid)
+			tids = append(tids, tid)
+		}
+		tabRows.Close()
+		if len(tids) == 0 {
+			_, _ = a.Pool.Exec(ctx, `DELETE FROM halls WHERE id=$1`, hid)
+			continue
+		}
+		// 2) удалить брони, связанные записи (платежи/заказы и т.д. каскадом)
+		_, _ = a.Pool.Exec(ctx, `
+			DELETE FROM reservations r
+			USING tables t
+			WHERE r.table_id = t.id AND t.hall_id = $1
+		`, hid)
+		// 3) удалить столы (после удаления броней это безопасно)
+		_, _ = a.Pool.Exec(ctx, `DELETE FROM tables WHERE hall_id=$1`, hid)
+		// 4) удалить зал
+		_, _ = a.Pool.Exec(ctx, `DELETE FROM halls WHERE id=$1`, hid)
+	}
+}
+
+// ensureDemoRestaurantCoords — проставляет lat/lng демо-ресторанам по slug, если координат нет.
+// Нужно, чтобы карта на главной работала даже на старой БД, где рестораны уже были созданы до миграции lat/lng.
+func (a *Handlers) ensureDemoRestaurantCoords(ctx context.Context) {
+	type row struct {
+		slug string
+		lat  float64
+		lng  float64
+	}
+	coords := []row{
+		{"trattoria-tverskaya", 55.7647, 37.6056},
+		{"la-luna", 59.9290, 30.3445},
+		{"sakura-lite", 55.7572, 37.6490},
+		{"bella-vista", 55.7484, 37.5837},
+	}
+	for _, c := range coords {
+		_, _ = a.Pool.Exec(ctx, `
+			UPDATE restaurants
+			SET lat = COALESCE(lat, $2),
+			    lng = COALESCE(lng, $3)
+			WHERE slug = $1
+		`, c.slug, c.lat, c.lng)
+	}
+}
+
+// ensureDemoRatings — создаёт несколько отзывов (reviews), чтобы рейтинги были видны сразу после поднятия.
+// Делает это только если отзывов ещё нет.
+func (a *Handlers) ensureDemoRatings(ctx context.Context) {
+	var n int
+	if err := a.Pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM reviews`).Scan(&n); err == nil && n > 0 {
+		return
+	}
+
+	// Берём завершённые визиты, по которым сид уже создаёт tab-платёж (seedClosedOrdersForCompleted).
+	rows, err := a.Pool.Query(ctx, `
+		SELECT
+			r.id,
+			rest.id AS restaurant_id,
+			r.user_id AS client_id,
+			r.assigned_waiter_id
+		FROM reservations r
+		JOIN tables t ON t.id = r.table_id
+		JOIN halls h ON h.id = t.hall_id
+		JOIN restaurants rest ON rest.id = h.restaurant_id
+		WHERE r.status = 'completed'
+		  AND EXISTS (
+		    SELECT 1 FROM payments p
+		    WHERE p.reservation_id = r.id AND p.purpose='tab' AND p.status='succeeded'
+		  )
+		ORDER BY r.completed_at DESC NULLS LAST, r.end_time DESC
+		LIMIT 12`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	type rr struct {
+		resID   uuid.UUID
+		restID  uuid.UUID
+		client  uuid.UUID
+		waiter  *uuid.UUID
+	}
+	var picked []rr
+	for rows.Next() {
+		var x rr
+		if err := rows.Scan(&x.resID, &x.restID, &x.client, &x.waiter); err == nil {
+			picked = append(picked, x)
+		}
+	}
+	if len(picked) == 0 {
+		return
+	}
+
+	// Небольшой разброс оценок (чтобы выглядело «живым»).
+	type pair struct{ rest, waiter int }
+	rates := []pair{{5, 5}, {5, 4}, {4, 4}, {5, 5}, {4, 5}, {5, 4}, {4, 4}, {5, 5}}
+	comments := []string{
+		"Отличный сервис.",
+		"Всё понравилось, вернёмся ещё.",
+		"Быстро и вкусно.",
+		"Уютно, приятная атмосфера.",
+		"Хорошее обслуживание.",
+	}
+
+	for i, x := range picked {
+		rp := rates[i%len(rates)]
+		cmt := comments[i%len(comments)]
+		var rw any = rp.waiter
+		if x.waiter == nil {
+			rw = nil
+		}
+		_, _ = a.Pool.Exec(ctx, `
+			INSERT INTO reviews (reservation_id, restaurant_id, client_id, waiter_id, rating_restaurant, rating_waiter, comment)
+			VALUES ($1,$2,$3,$4,$5,$6,$7)
+			ON CONFLICT (reservation_id, client_id) DO NOTHING
+		`, x.resID, x.restID, x.client, x.waiter, rp.rest, rw, cmt)
+	}
 }
 
 func (a *Handlers) ensureSuperadminUser(ctx context.Context) {
@@ -53,18 +208,141 @@ func (a *Handlers) ensureDefaultSettings(ctx context.Context) {
 		ON CONFLICT (key) DO NOTHING`)
 }
 
-// demoTrattoriaMainHallLayoutJSON — демо-схема основного зала: периметр, перегородка, окна, дверной проём, подписи и зоны.
+// demoTrattoriaMainHallLayoutJSON — витринная демо-схема основного зала:
+// комнаты (rooms), стены, окна/двери, зоны (zone_named) и немного декора.
 func demoTrattoriaMainHallLayoutJSON() string {
-	return `{"canvas_width":920,"canvas_height":640,` +
-		`"walls":[{"x1":0,"y1":0,"x2":920,"y2":0},{"x1":920,"y1":0,"x2":920,"y2":640},{"x1":920,"y1":640,"x2":0,"y2":640},{"x1":0,"y1":640,"x2":0,"y2":0},{"x1":460,"y1":96,"x2":460,"y2":544}],` +
-		`"rooms":[{"polygon":[28,28,452,28,452,612,28,612],"label":"Главный зал","kind":"main"},{"polygon":[468,28,892,28,892,612,468,612],"label":"Летняя зона","kind":"terrace"}],` +
-		`"decorations":[` +
-		`{"type":"zone_label","text":"Панорамные окна","x":52,"y":48,"w":220,"h":32},` +
-		`{"type":"window_band","x":0,"y":0,"w":920,"h":32},` +
-		`{"type":"door","x1":420,"y1":300,"x2":500,"y2":300},` +
-		`{"type":"zone_named","label":"Главный зал","points":[36,52,444,52,444,604,36,604],"fill":"rgba(99,102,241,0.14)","stroke":"rgba(129,140,248,0.55)","labelX":52,"labelY":68},` +
-		`{"type":"zone_named","label":"Летняя зона","points":[476,52,884,52,884,604,476,604],"fill":"rgba(245,158,11,0.12)","stroke":"rgba(251,191,36,0.55)","labelX":580,"labelY":68}` +
-		`]}`
+	// NB: JSON строкой, чтобы сид работал без чтения файлов.
+	return `{
+  "canvas_width": 980,
+  "canvas_height": 700,
+  "walls": [
+    { "x1": 0, "y1": 0, "x2": 980, "y2": 0 },
+    { "x1": 980, "y1": 0, "x2": 980, "y2": 700 },
+    { "x1": 980, "y1": 700, "x2": 0, "y2": 700 },
+    { "x1": 0, "y1": 700, "x2": 0, "y2": 0 },
+
+    { "x1": 620, "y1": 88, "x2": 620, "y2": 612 },
+    { "x1": 620, "y1": 372, "x2": 940, "y2": 372 },
+
+    { "x1": 120, "y1": 612, "x2": 860, "y2": 612 },
+    { "x1": 220, "y1": 612, "x2": 220, "y2": 700 },
+    { "x1": 360, "y1": 612, "x2": 360, "y2": 700 }
+  ],
+  "rooms": [
+    {
+      "polygon": [ 28, 28, 612, 28, 612, 604, 28, 604 ],
+      "label": "Главный зал",
+      "kind": "main"
+    },
+    {
+      "polygon": [ 628, 28, 952, 28, 952, 364, 628, 364 ],
+      "label": "VIP",
+      "kind": "vip"
+    },
+    {
+      "polygon": [ 628, 380, 952, 380, 952, 604, 628, 604 ],
+      "label": "Бар",
+      "kind": "bar"
+    },
+    {
+      "polygon": [ 28, 612, 952, 612, 952, 672, 28, 672 ],
+      "label": "Вход / гардероб",
+      "kind": "entry"
+    }
+  ],
+  "decorations": [
+    { "type": "window_band", "x": 0, "y": 0, "w": 980, "h": 30 },
+    { "type": "zone_label", "text": "Панорамные окна", "x": 42, "y": 44, "w": 220, "h": 32 },
+
+    { "type": "window", "x1": 952, "y1": 70, "x2": 952, "y2": 170 },
+    { "type": "window", "x1": 952, "y1": 210, "x2": 952, "y2": 330 },
+    { "type": "window", "x1": 952, "y1": 420, "x2": 952, "y2": 570 },
+
+    { "type": "door", "x1": 604, "y1": 200, "x2": 636, "y2": 200 },
+    { "type": "door", "x1": 604, "y1": 500, "x2": 636, "y2": 500 },
+    { "type": "door", "x1": 470, "y1": 612, "x2": 510, "y2": 612 },
+    { "type": "door", "x1": 220, "y1": 648, "x2": 220, "y2": 676 },
+
+    {
+      "type": "zone_named",
+      "label": "Главный зал",
+      "points": [ 40, 56, 600, 56, 600, 592, 40, 592 ],
+      "fill": "rgba(99,102,241,0.14)",
+      "stroke": "rgba(129,140,248,0.55)",
+      "labelX": 54,
+      "labelY": 74
+    },
+    {
+      "type": "zone_named",
+      "label": "VIP",
+      "points": [ 640, 56, 940, 56, 940, 356, 640, 356 ],
+      "fill": "rgba(236,72,153,0.10)",
+      "stroke": "rgba(244,114,182,0.55)",
+      "labelX": 654,
+      "labelY": 74
+    },
+    {
+      "type": "zone_named",
+      "label": "Бар",
+      "points": [ 640, 392, 940, 392, 940, 592, 640, 592 ],
+      "fill": "rgba(245,158,11,0.12)",
+      "stroke": "rgba(251,191,36,0.55)",
+      "labelX": 654,
+      "labelY": 410
+    },
+    {
+      "type": "zone_named",
+      "label": "Вход / гардероб",
+      "points": [ 40, 620, 940, 620, 940, 692, 40, 692 ],
+      "fill": "rgba(20,184,166,0.10)",
+      "stroke": "rgba(45,212,191,0.55)",
+      "labelX": 72,
+      "labelY": 642
+    },
+    {
+      "type": "zone_named",
+      "label": "WC",
+      "points": [ 40, 620, 212, 620, 212, 692, 40, 692 ],
+      "fill": "rgba(148,163,184,0.10)",
+      "stroke": "rgba(148,163,184,0.55)",
+      "labelX": 92,
+      "labelY": 662
+    },
+    {
+      "type": "fixture",
+      "kind": "pillars",
+      "label": "Колонна",
+      "x": 310,
+      "y": 300,
+      "w": 34,
+      "h": 34
+    },
+    {
+      "type": "fixture",
+      "kind": "plant",
+      "x": 740,
+      "y": 430,
+      "w": 44,
+      "h": 44
+    },
+    {
+      "type": "fixture",
+      "kind": "cloakroom",
+      "x": 382,
+      "y": 628,
+      "w": 210,
+      "h": 52
+    },
+    {
+      "type": "fixture",
+      "kind": "wc",
+      "x": 64,
+      "y": 628,
+      "w": 126,
+      "h": 52
+    }
+  ]
+}`
 }
 
 // ensureTrattoriaMainHallDemoZonesLayout — для уже существующей БД: подставляет расширенную демо-схему,
@@ -83,7 +361,12 @@ func (a *Handlers) ensureTrattoriaMainHallDemoZonesLayout(ctx context.Context) {
 			OR NOT EXISTS (
 				SELECT 1
 				FROM jsonb_array_elements(COALESCE(h.layout_json->'decorations', '[]'::jsonb)) AS elem
-				WHERE elem->>'type' = 'zone_named'
+				WHERE elem->>'type' = 'window'
+			)
+			OR NOT EXISTS (
+				SELECT 1
+				FROM jsonb_array_elements(COALESCE(h.layout_json->'rooms', '[]'::jsonb)) AS rm
+				WHERE jsonb_typeof(rm->'polygon') = 'array'
 			)
 		  )
 	`, demoTrattoriaMainHallLayoutJSON())
@@ -141,24 +424,27 @@ func (a *Handlers) seedBase(ctx context.Context) {
 		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
 		VALUES ($1,'Bella Vista','Москва, Смоленская пл., 6','bella-vista','Москва','Итальянская кухня в центре Москвы',$2,$3,'+7 (495) 444-50-04','10:00','00:00',$4::jsonb)`, rid4, owner4ID, demoRestaurantCoverURL(DemoSlugBella), demoRestaurantExtraJSONForSeed("ciao@bellavista-demo.rest", DemoSlugBella))
 
+	// Координаты для карты (OSM/Leaflet).
+	// Если колонки lat/lng ещё не добавлены — UPDATE просто упадёт (игнорируем).
+	_, _ = a.Pool.Exec(ctx, `UPDATE restaurants SET lat=$2, lng=$3 WHERE id=$1`, rid, 55.7647, 37.6056)   // Москва (Тверская)
+	_, _ = a.Pool.Exec(ctx, `UPDATE restaurants SET lat=$2, lng=$3 WHERE id=$1`, rid2, 59.9290, 30.3445)  // СПб (Фонтанка)
+	_, _ = a.Pool.Exec(ctx, `UPDATE restaurants SET lat=$2, lng=$3 WHERE id=$1`, rid3, 55.7572, 37.6490)  // Москва (Покровка)
+	_, _ = a.Pool.Exec(ctx, `UPDATE restaurants SET lat=$2, lng=$3 WHERE id=$1`, rid4, 55.7484, 37.5837)  // Москва (Смоленская)
+
 	hidMain := uuid.New()
-	hidTerrace := uuid.New()
 	hidLuna := uuid.New()
 	hidSakura := uuid.New()
 	hidBella := uuid.New()
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Основной зал')`, hidMain, rid)
-	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Летняя терраса')`, hidTerrace, rid)
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Главный зал')`, hidLuna, rid2)
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Зал татами')`, hidSakura, rid3)
 	_, _ = a.Pool.Exec(ctx, `INSERT INTO halls (id, restaurant_id, name) VALUES ($1,$2,'Основной зал')`, hidBella, rid4)
 
 	wallsMain := demoTrattoriaMainHallLayoutJSON()
-	wallsTerr := `{"walls":[{"x1":0,"y1":0,"x2":720,"y2":0},{"x1":720,"y1":0,"x2":720,"y2":480},{"x1":720,"y1":480,"x2":0,"y2":480},{"x1":0,"y1":480,"x2":0,"y2":0}],"decorations":[]}`
 	wallsLuna := `{"walls":[{"x1":0,"y1":0,"x2":800,"y2":0},{"x1":800,"y1":0,"x2":800,"y2":560},{"x1":800,"y1":560,"x2":0,"y2":560},{"x1":0,"y1":560,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Центр зала","x":360,"y":260,"w":120,"h":28}]}`
 	wallsSakura := `{"walls":[{"x1":0,"y1":0,"x2":680,"y2":0},{"x1":680,"y1":0,"x2":680,"y2":520},{"x1":680,"y1":520,"x2":0,"y2":520},{"x1":0,"y1":520,"x2":0,"y2":0}],"decorations":[]}`
 	wallsBella := `{"walls":[{"x1":0,"y1":0,"x2":880,"y2":0},{"x1":880,"y1":0,"x2":880,"y2":600},{"x1":880,"y1":600,"x2":0,"y2":600},{"x1":0,"y1":600,"x2":0,"y2":0}],"decorations":[{"type":"zone_label","text":"Панорама","x":40,"y":36,"w":160,"h":28}]}`
 	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidMain, wallsMain)
-	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidTerrace, wallsTerr)
 	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidLuna, wallsLuna)
 	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidSakura, wallsSakura)
 	_, _ = a.Pool.Exec(ctx, `UPDATE halls SET layout_json=$2::jsonb WHERE id=$1`, hidBella, wallsBella)
@@ -171,44 +457,28 @@ func (a *Handlers) seedBase(ctx context.Context) {
 		w, h       float64
 		rot        float64
 	}{
-		{1, 2, 100, 100, "round", 52, 52, 0},
-		{2, 4, 260, 100, "rect", 88, 64, 0},
-		{3, 4, 420, 100, "rect", 88, 64, 0},
-		{4, 6, 580, 100, "ellipse", 112, 72, 0},
-		{5, 4, 100, 260, "rect", 88, 64, 12},
-		{6, 2, 260, 260, "round", 48, 48, 0},
-		{7, 8, 420, 260, "rect", 120, 88, 0},
-		{8, 4, 580, 260, "rect", 88, 64, -8},
-		{9, 4, 100, 420, "rect", 88, 64, 0},
-		{10, 6, 280, 420, "ellipse", 104, 80, 0},
-		{11, 4, 460, 420, "rect", 88, 64, 0},
-		{12, 2, 620, 420, "round", 48, 48, 0},
+		// Главный зал (слева): плотнее, с разными формами.
+		{1, 2, 120, 120, "round", 52, 52, 0},
+		{2, 4, 300, 120, "rect", 96, 64, 0},
+		{3, 4, 480, 120, "rect", 96, 64, 0},
+		{4, 6, 520, 260, "ellipse", 120, 78, -6},
+		{5, 4, 140, 260, "rect", 92, 64, 10},
+		{6, 2, 320, 260, "round", 50, 50, 0},
+		{7, 8, 460, 420, "rect", 132, 92, 0},
+		{8, 4, 160, 440, "rect", 92, 64, 0},
+		{9, 4, 320, 460, "rect", 92, 64, -8},
+		{10, 6, 520, 540, "ellipse", 112, 84, 0},
+		// VIP (справа сверху)
+		{11, 4, 780, 160, "rect", 104, 72, 0},
+		{12, 6, 820, 270, "ellipse", 120, 84, 0},
+		// Бар (справа снизу)
+		{13, 2, 720, 460, "round", 50, 50, 0},
+		{14, 4, 860, 470, "rect", 100, 70, 0},
 	}
 	for _, t := range mainTables {
 		_, _ = a.Pool.Exec(ctx, `
 			INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape, status, width, height, rotation_deg)
 			VALUES ($1,$2,$3,$4,$5,$6,'available',$7,$8,$9)`, hidMain, t.num, t.cap, t.x, t.y, t.shape, t.w, t.h, t.rot)
-	}
-
-	// Терраса: 6 столов, один заблокирован
-	terrTables := []struct {
-		num  int
-		cap  int
-		x, y float64
-		st   string
-		br   *string
-	}{
-		{1, 4, 120, 120, "available", nil},
-		{2, 2, 300, 120, "available", nil},
-		{3, 6, 480, 120, "blocked", strPtr("Ремонт навеса")},
-		{4, 4, 120, 300, "available", nil},
-		{5, 4, 300, 300, "available", nil},
-		{6, 8, 480, 300, "available", nil},
-	}
-	for _, t := range terrTables {
-		_, _ = a.Pool.Exec(ctx, `
-			INSERT INTO tables (hall_id, table_number, capacity, x_coordinate, y_coordinate, shape, status, block_reason, width, height)
-			VALUES ($1,$2,$3,$4,$5,'rect',$6,$7,88,88)`, hidTerrace, t.num, t.cap, t.x, t.y, t.st, t.br)
 	}
 
 	lunaTables := []struct {
@@ -287,35 +557,10 @@ func (a *Handlers) seedBase(ctx context.Context) {
 		email, name, phone string
 	}{
 		{"client@demo.ru", "Алексей Петров", "+79161230001"},
-		{"client1@demo.ru", "Анна Иванова", "+79161230002"},
 		{"client2@demo.ru", "Пётр Смирнов", "+79161230003"},
 		{"client3@demo.ru", "Ольга Кузнецова", "+79161230004"},
 		{"client4@demo.ru", "Игорь Новиков", "+79161230005"},
 		{"client5@demo.ru", "Мария Попова", "+79161230006"},
-		{"client6@demo.ru", "Сергей Васильев", "+79161230007"},
-		{"client7@demo.ru", "Екатерина Соколова", "+79161230008"},
-		{"client8@demo.ru", "Андрей Михайлов", "+79161230009"},
-		{"client9@demo.ru", "Наталья Фёдорова", "+79161230010"},
-		{"client10@demo.ru", "Виктор Семёнов", "+79161230011"},
-		{"client11@demo.ru", "Татьяна Егорова", "+79161230012"},
-		{"client12@demo.ru", "Роман Павлов", "+79161230013"},
-		{"client13@demo.ru", "Дарья Лебедева", "+79161230014"},
-		{"client14@demo.ru", "Константин Захаров", "+79161230015"},
-		{"client15@demo.ru", "Юлия Белова", "+79161230016"},
-		{"client16@demo.ru", "Олег Степанов", "+79161230017"},
-		{"client17@demo.ru", "Вера Крылова", "+79161230018"},
-		{"client18@demo.ru", "Максим Орлов", "+79161230019"},
-		{"client19@demo.ru", "Софья Зайцева", "+79161230020"},
-		{"client20@demo.ru", "Илья Громов", "+79161230021"},
-		{"client21@demo.ru", "Алина Волкова", "+79161230022"},
-		{"client22@demo.ru", "Тимур Алиев", "+79161230023"},
-		{"client23@demo.ru", "Елена Сидорова", "+79161230024"},
-		{"client24@demo.ru", "Артём Ким", "+79161230025"},
-		{"client25@demo.ru", "Полина Чернова", "+79161230026"},
-		{"client26@demo.ru", "Глеб Фролов", "+79161230027"},
-		{"client27@demo.ru", "Диана Рыбакова", "+79161230028"},
-		{"client28@demo.ru", "Станислав Мартынов", "+79161230029"},
-		{"client29@demo.ru", "Ксения Логинова", "+79161230030"},
 	}
 	for _, u := range clients {
 		_, err := a.Pool.Exec(ctx, `
@@ -818,7 +1063,7 @@ func (a *Handlers) seedClosedOrdersForCompleted(ctx context.Context) {
 const demoTrattoriaNearMarker = "[demo-trattoria-near]"
 const demoBellaNearMarker = "[demo-bella-near]"
 
-// ensureRestaurantTodayTomorrowDemoBookings — много демо-броней на сегодня и завтра (Europe/Moscow) для ресторана по slug.
+// ensureRestaurantTodayTomorrowDemoBookings — небольшой набор демо-броней на сегодня и завтра (Europe/Moscow) для ресторана по slug.
 // waiterEmail2 может быть пустым — тогда второй официант совпадает с первым (как у Bella Vista с одним официантом).
 func (a *Handlers) ensureRestaurantTodayTomorrowDemoBookings(ctx context.Context, slug, marker, waiterEmail1, waiterEmail2 string) {
 	var restID uuid.UUID
@@ -859,7 +1104,7 @@ func (a *Handlers) ensureRestaurantTodayTomorrowDemoBookings(ctx context.Context
 		return
 	}
 
-	clientRows, err := a.Pool.Query(ctx, `SELECT id FROM users WHERE role='client' ORDER BY email LIMIT 40`)
+	clientRows, err := a.Pool.Query(ctx, `SELECT id FROM users WHERE role='client' ORDER BY email LIMIT 10`)
 	if err != nil {
 		return
 	}
@@ -911,42 +1156,30 @@ func (a *Handlers) ensureRestaurantTodayTomorrowDemoBookings(ctx context.Context
 		"Командировка", "Тихий столик", "Корпоратив", "Свидание",
 	}
 	var books []nb
-	todayH := []struct{ hh, mm int }{
-		{11, 0}, {11, 30}, {12, 0}, {12, 30}, {13, 0}, {14, 0}, {15, 30},
-		{16, 30}, {17, 30}, {18, 30}, {19, 30}, {20, 0}, {20, 30},
-	}
+	// Компактный демо-набор (удобно для отчёта/скриншотов): несколько броней на сегодня и завтра.
+	todayH := []struct{ hh, mm int }{{12, 0}, {14, 30}, {19, 0}}
 	for i, hm := range todayH {
 		st := "confirmed"
 		pay := "succeeded"
 		var seated, svc *time.Time
 		w1 := i%2 == 0
 		switch i {
-		case 2:
+		case 1:
 			st = "seated"
 			s := today0.Add(time.Duration(hm.hh)*time.Hour + time.Duration(hm.mm)*time.Minute).UTC().Add(4 * time.Minute)
 			seated = &s
-		case 3:
+		case 2:
 			st = "in_service"
 			s0 := today0.Add(time.Duration(hm.hh)*time.Hour + time.Duration(hm.mm)*time.Minute).UTC().Add(3 * time.Minute)
 			s1 := s0.Add(18 * time.Minute)
 			seated, svc = &s0, &s1
-		case 7:
-			st = "pending_payment"
-			pay = "pending"
 		}
 		books = append(books, nb{0, hm.hh, hm.mm, st, i, i, w1, pay, seated, svc})
 	}
-	tomorrowH := []struct{ hh, mm int }{
-		{10, 30}, {11, 30}, {12, 30}, {14, 0}, {15, 30}, {17, 0},
-		{18, 30}, {19, 0}, {20, 30}, {21, 0},
-	}
+	tomorrowH := []struct{ hh, mm int }{{11, 30}, {13, 0}, {18, 30}}
 	for i, hm := range tomorrowH {
 		st := "confirmed"
 		pay := "succeeded"
-		if i == 3 || i == 7 {
-			st = "pending_payment"
-			pay = "pending"
-		}
 		books = append(books, nb{1, hm.hh, hm.mm, st, i + len(todayH), i + len(todayH), i%2 == 0, pay, nil, nil})
 	}
 

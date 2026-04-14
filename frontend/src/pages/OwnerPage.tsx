@@ -126,6 +126,13 @@ type Analytics = {
   revenue_by_day_kopecks?: number[];
 };
 
+type OwnerRatings = {
+  restaurant_id: string;
+  restaurant_avg?: number | null;
+  restaurant_count: number;
+  waiters: { id: string; name: string; avg?: number | null; count: number }[];
+};
+
 type StaffRow = {
   id: string;
   email: string;
@@ -139,6 +146,7 @@ export default function OwnerPage() {
   const { user, refreshMe } = useAuth();
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
+  const [ratings, setRatings] = useState<OwnerRatings | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [restPhoto, setRestPhoto] = useState<string | null>(null);
   const [restGallery, setRestGallery] = useState<string[]>([]);
@@ -173,18 +181,21 @@ export default function OwnerPage() {
     if (!user?.restaurant_id || user.role !== 'owner') {
       setAnalytics(null);
       setSettings(null);
+      setRatings(null);
       setLoadError(null);
       return;
     }
     void (async () => {
       setLoadError(null);
       try {
-        const [a, s] = await Promise.all([
+        const [a, s, rr] = await Promise.all([
           api.get<Analytics>('/owner/analytics', { params: { from: rangeFrom, to: rangeTo } }),
           api.get('/settings'),
+          api.get<OwnerRatings>('/owner/ratings'),
         ]);
         setAnalytics(a.data);
         setSettings(s.data as Record<string, unknown>);
+        setRatings(rr.data);
       } catch (e: unknown) {
         if (axios.isAxiosError(e)) {
           const d = e.response?.data as { error?: string } | undefined;
@@ -547,7 +558,43 @@ export default function OwnerPage() {
             <span className="owner-kpi-label">Средний чек (закрытые)</span>
             <strong>{(avgCheck / 100).toFixed(0)} ₽</strong>
           </div>
+          <div className="owner-kpi-card">
+            <span className="owner-kpi-label">Рейтинг заведения</span>
+            <strong>
+              {ratings && typeof ratings.restaurant_avg === 'number' && ratings.restaurant_count > 0
+                ? `★ ${ratings.restaurant_avg.toFixed(1)}`
+                : '—'}
+            </strong>
+            <span className="muted compact">
+              {ratings ? `${ratings.restaurant_count} оценок` : ''}
+            </span>
+          </div>
         </div>
+        {ratings && ratings.waiters.length > 0 && (
+          <div className="card" style={{ marginTop: 12 }}>
+            <h3 style={{ marginTop: 0 }}>Рейтинг официантов</h3>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Официант</th>
+                    <th>Рейтинг</th>
+                    <th>Оценок</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ratings.waiters.map((w) => (
+                    <tr key={w.id}>
+                      <td>{w.name || '—'}</td>
+                      <td className="muted">{typeof w.avg === 'number' && w.count > 0 ? `★ ${w.avg.toFixed(1)}` : '—'}</td>
+                      <td className="muted">{w.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         <div className="btn-row">
           <button type="button" className="btn secondary" onClick={() => void downloadFinance()}>
             Скачать отчёт XLSX

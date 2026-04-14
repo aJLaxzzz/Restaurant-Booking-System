@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { api } from '../api';
 import { resolvePublicImageUrl } from '../utils/publicAssetUrl';
+import { RestaurantsMap } from '../components/RestaurantsMap';
 
 type Restaurant = {
   id: string;
@@ -15,6 +16,10 @@ type Restaurant = {
   phone?: string;
   opens_at?: string;
   closes_at?: string;
+  rating_avg?: number | null;
+  rating_count?: number;
+  lat?: number | null;
+  lng?: number | null;
 };
 
 function scrollToVenues() {
@@ -35,6 +40,7 @@ export default function Home() {
   const [venues, setVenues] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(true);
   const [cityFilter, setCityFilter] = useState<string>('');
+  const [mapMode, setMapMode] = useState(false);
 
   const cities = useMemo(() => {
     const s = new Set<string>();
@@ -49,6 +55,43 @@ export default function Home() {
     if (!cityFilter) return venues;
     return venues.filter((v) => (v.city || '').trim() === cityFilter);
   }, [venues, cityFilter]);
+
+  const cityCenter = useMemo((): { lat: number; lng: number; zoom: number } => {
+    // Если город не выбран (показываем все города) — не усредняем координаты,
+    // иначе центр получается «между» Москвой и СПб (примерно Тверь).
+    const cityDefaults: Record<string, { lat: number; lng: number; zoom: number }> = {
+      Москва: { lat: 55.7558, lng: 37.6173, zoom: 11 },
+      'Санкт-Петербург': { lat: 59.9386, lng: 30.3141, zoom: 11 },
+    };
+
+    if (!cityFilter) {
+      return cityDefaults['Москва'];
+    }
+
+    const list = filteredVenues
+      .map((v) => ({ lat: v.lat, lng: v.lng }))
+      .filter((x): x is { lat: number; lng: number } => typeof x.lat === 'number' && typeof x.lng === 'number');
+    if (list.length === 0) {
+      return cityDefaults[cityFilter] ?? cityDefaults['Москва'];
+    }
+    const lat = list.reduce((s, p) => s + p.lat, 0) / list.length;
+    const lng = list.reduce((s, p) => s + p.lng, 0) / list.length;
+    // На уровне города обычно хватает 12–13.
+    return { lat, lng, zoom: 12 };
+  }, [filteredVenues, cityFilter]);
+
+  const mapPins = useMemo(() => {
+    return filteredVenues
+      .filter((v) => typeof v.lat === 'number' && typeof v.lng === 'number')
+      .map((v) => ({
+        id: v.id,
+        name: displayVenueName(v),
+        city: v.city,
+        address: v.address,
+        lat: v.lat as number,
+        lng: v.lng as number,
+      }));
+  }, [filteredVenues]);
 
   const loadVenues = useCallback(async () => {
     setLoading(true);
@@ -236,6 +279,15 @@ export default function Home() {
             ) : (
               <span className="muted compact">город не указан</span>
             )}
+            <span style={{ flex: 1 }} />
+            <button
+              type="button"
+              className={mapMode ? 'home-city-chip home-city-chip--active' : 'home-city-chip'}
+              onClick={() => setMapMode((v) => !v)}
+              title="Показать рестораны на карте"
+            >
+              Карта
+            </button>
           </div>
         )}
 
@@ -260,6 +312,15 @@ export default function Home() {
           <div className="home-empty">
             <p>Нет заведений в выбранном городе.</p>
           </div>
+        ) : mapMode ? (
+          <div style={{ marginTop: 14 }}>
+            <RestaurantsMap pins={mapPins} center={{ lat: cityCenter.lat, lng: cityCenter.lng }} zoom={cityCenter.zoom} />
+            {mapPins.length === 0 && (
+              <p className="muted compact" style={{ marginTop: 10 }}>
+                Для выбранного фильтра нет координат ресторанов (lat/lng). Добавьте их в seed или через админку.
+              </p>
+            )}
+          </div>
         ) : (
           <div className={`home-venue-grid${countClass}`}>
             {filteredVenues.map((r) => (
@@ -283,6 +344,13 @@ export default function Home() {
                 </div>
                 <div className="home-venue-card-body">
                   <h3 className="home-venue-name">{displayVenueName(r)}</h3>
+                  {typeof r.rating_avg === 'number' && (r.rating_count ?? 0) > 0 ? (
+                    <p className="home-venue-line muted compact">
+                      ★ {r.rating_avg.toFixed(1)} · {r.rating_count} оцен{r.rating_count === 1 ? 'ка' : r.rating_count! < 5 ? 'ки' : 'ок'}
+                    </p>
+                  ) : (
+                    <p className="home-venue-line muted compact">★ нет оценок</p>
+                  )}
                   {r.address ? (
                     <p className="home-venue-line muted compact">{r.address}</p>
                   ) : null}

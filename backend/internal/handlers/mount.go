@@ -62,11 +62,13 @@ func (a *Handlers) MountReservation(r chi.Router) {
 		r.With(a.requireRoles("owner")).Post("/owner/staff/assign", a.handleOwnerStaffAssign)
 		r.With(a.requireRoles("admin")).Post("/admin/staff/assign", a.handleAdminStaffAssign)
 		r.With(a.requireRoles("admin")).Get("/admin/waiters", a.handleAdminWaitersList)
+		r.With(a.requireRoles("admin")).Get("/admin/waiters/ratings", a.handleAdminWaitersRatings)
 		r.With(a.requireRoles("admin")).Get("/admin/waiters/work-dates", a.handleAdminWaitersWorkDatesBulkGet)
 		r.With(a.requireRoles("admin")).Get("/admin/waiters/{id}/work-dates", a.handleAdminWaiterWorkDatesGet)
 		r.With(a.requireRoles("admin")).Put("/admin/waiters/{id}/work-dates", a.handleAdminWaiterWorkDatesPut)
 
 		r.With(a.requireRoles("owner")).Get("/owner/analytics", a.handleOwnerAnalytics)
+		r.With(a.requireRoles("owner")).Get("/owner/ratings", a.handleOwnerRatings)
 		r.With(a.requireRoles("owner")).Get("/owner/finance", a.handleOwnerFinance)
 		r.With(a.requireRoles("owner")).Get("/owner/finance/export", a.handleOwnerFinanceExport)
 		r.With(a.requireRoles("owner")).Get("/owner/staff-stats", a.handleStaffStats)
@@ -102,5 +104,6 @@ func (a *Handlers) MountPayment(r chi.Router) {
 		r.Post("/payments/{pid}/checkout", a.handlePaymentCheckout)
 		r.With(a.requireRoles("admin", "owner")).Post("/payments/{pid}/refund", a.handleRefund)
 		r.Post("/payments/checkout/{pid}/simulate", a.handleSimulatePay)
+		r.With(a.requireRoles("client", "owner")).Post("/reviews", a.handleReviewCreate)
 	})
 }

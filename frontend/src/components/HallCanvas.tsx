@@ -641,6 +641,11 @@ export function HallCanvas({
     return [...named.map((x) => x.i), ...non];
   }, [decorations]);
 
+  const hasZones = useMemo(
+    () => decorations.some((d) => String(d.type || '') === 'zone_named' || String(d.type || '') === 'zone_polygon'),
+    [decorations],
+  );
+
   const zoneNamedHoleMap = useMemo(() => {
     const list: { i: number; poly: number[]; area: number }[] = [];
     decorations.forEach((d, idx) => {
@@ -816,7 +821,7 @@ export function HallCanvas({
     }
 
     if (placeMode === 'zone_fill') {
-      type ZHit = { poly: number[]; holes: number[][]; area: number };
+      type ZHit = { poly: number[]; holes: number[][]; area: number; kind: 'decor' | 'room' | 'walls' };
       const decHits: ZHit[] = [];
       for (let di = 0; di < decorations.length; di++) {
         const d = decorations[di];
@@ -832,41 +837,30 @@ export function HallCanvas({
               poly: [...pts],
               holes: ph.map((h) => [...h]),
               area: effectivePolygonArea(pts, ph),
+              kind: 'decor',
             });
           }
         }
       }
-      const roomHits: ZHit[] = [];
-      for (const room of rooms) {
-        const poly = room.polygon;
-        if (pointInPolygon(px, py, poly)) {
-          roomHits.push({ poly: [...poly], holes: [], area: effectivePolygonArea(poly, []) });
+      // Предсказуемый выбор области:
+      // 1) если клик в явно нарисованной зоне — берём её (самую маленькую в случае вложенности)
+      // 2) иначе — flood-fill область по стенам (без клипа по rooms, т.к. rooms могут быть «устаревшими» после правок стен)
+      let best: ZHit | null = null;
+      if (decHits.length > 0) {
+        decHits.sort((a, b) => a.area - b.area);
+        best = decHits[0];
+      } else {
+        const fromWalls = floodRegionPolygonFromWalls(px, py, stageW, stageH, walls, wallArcs, wallQuads, null);
+        if (fromWalls && fromWalls.outer.length >= 6) {
+          best = {
+            poly: [...fromWalls.outer],
+            holes: fromWalls.holes.map((h) => [...h]),
+            area: effectivePolygonArea(fromWalls.outer, fromWalls.holes),
+            kind: 'walls',
+          };
         }
       }
-      const hits: ZHit[] = [...decHits, ...roomHits];
-      let roomClip: number[] | null = null;
-      let roomClipArea = Infinity;
-      for (const room of rooms) {
-        const poly = room.polygon;
-        if (poly.length >= 6 && pointInPolygon(px, py, poly)) {
-          const ar = polygonArea(poly);
-          if (ar < roomClipArea) {
-            roomClipArea = ar;
-            roomClip = poly;
-          }
-        }
-      }
-      const fromWalls = floodRegionPolygonFromWalls(px, py, stageW, stageH, walls, wallArcs, wallQuads, roomClip);
-      if (fromWalls && fromWalls.outer.length >= 6) {
-        hits.push({
-          poly: [...fromWalls.outer],
-          holes: fromWalls.holes.map((h) => [...h]),
-          area: effectivePolygonArea(fromWalls.outer, fromWalls.holes),
-        });
-      }
-      if (hits.length > 0) {
-        hits.sort((a, b) => a.area - b.area);
-        const best = hits[0];
+      if (best) {
         setZoneFillPoints(best.poly);
         setZoneFillHoles(best.holes);
         setZoneFillLabelPos({ x: px, y: py });
@@ -1445,7 +1439,7 @@ export function HallCanvas({
                 ? 'Второй клик — конец сегмента'
                 : 'Первый клик — начало кривой стены')}
           {placeMode === 'zone_fill' &&
-            'Клик: стены (flood), контур помещения (rooms), полигон зоны. Несколько зон в декоре — выбирается меньшая по площади; контур комнаты тоже участвует. Имя и цвет — в диалоге.'}
+            'Клик: полигон зоны (если попал внутрь) или flood-fill по стенам. При вложенных зонах выбирается меньшая по площади. Имя и цвет — в диалоге.'}
         </p>
       )}
 
@@ -1551,26 +1545,27 @@ export function HallCanvas({
                 minY={gridWorldBounds.minY}
                 maxY={gridWorldBounds.maxY}
               />
-              {rooms.map((room, ri) => (
-                <Group key={`room-${ri}`} listening={false}>
-                  <Line
-                    closed
-                    points={room.polygon}
-                    fill="rgba(99,102,241,0.08)"
-                    stroke="rgba(129,140,248,0.45)"
-                    strokeWidth={2}
-                    perfectDrawEnabled={false}
-                  />
-                  <Text
-                    x={room.polygon[0] ?? 0}
-                    y={(room.polygon[1] ?? 0) - 18}
-                    text={String(room.label || room.kind || 'Помещение')}
-                    fontSize={12}
-                    fill="#a5b4fc"
-                    listening={false}
-                  />
-                </Group>
-              ))}
+              {!hasZones &&
+                rooms.map((room, ri) => (
+                  <Group key={`room-${ri}`} listening={false}>
+                    <Line
+                      closed
+                      points={room.polygon}
+                      fill="rgba(99,102,241,0.08)"
+                      stroke="rgba(129,140,248,0.45)"
+                      strokeWidth={2}
+                      perfectDrawEnabled={false}
+                    />
+                    <Text
+                      x={room.polygon[0] ?? 0}
+                      y={(room.polygon[1] ?? 0) - 18}
+                      text={String(room.label || room.kind || 'Помещение')}
+                      fontSize={12}
+                      fill="#a5b4fc"
+                      listening={false}
+                    />
+                  </Group>
+                ))}
               <HallCanvasWallsLayer
                 walls={walls}
                 wallArcs={wallArcs}

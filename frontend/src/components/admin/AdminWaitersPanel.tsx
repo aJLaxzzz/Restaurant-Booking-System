@@ -32,15 +32,29 @@ export function AdminWaitersPanel() {
   const [rows, setRows] = useState<WaiterRow[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [ratingById, setRatingById] = useState<Record<string, { avg?: number | null; count: number }>>({});
 
   const load = useCallback(async () => {
     setErr(null);
     try {
-      const { data } = await api.get<WaiterRow[]>('/admin/waiters');
+      const [w, r] = await Promise.all([
+        api.get<WaiterRow[]>('/admin/waiters'),
+        api.get<{ waiters?: { id: string; avg?: number | null; count: number }[] }>('/admin/waiters/ratings'),
+      ]);
+      const data = w.data;
       setRows(Array.isArray(data) ? data : []);
+      const list = r.data?.waiters;
+      const map: Record<string, { avg?: number | null; count: number }> = {};
+      if (Array.isArray(list)) {
+        for (const x of list) {
+          if (x && typeof x.id === 'string') map[x.id] = { avg: x.avg ?? null, count: Number(x.count) || 0 };
+        }
+      }
+      setRatingById(map);
     } catch {
       setErr('Не удалось загрузить список официантов');
       setRows([]);
+      setRatingById({});
     }
   }, []);
 
@@ -79,6 +93,7 @@ export function AdminWaitersPanel() {
               <th>Имя</th>
               <th>Email</th>
               <th>Телефон</th>
+              <th>Рейтинг</th>
               <th>Сегодня (столы)</th>
               <th></th>
             </tr>
@@ -97,6 +112,9 @@ export function AdminWaitersPanel() {
                           `№${r.table_number} ${formatStart(r.start_time)} (${reservationStatusLabelRu(r.status)})`,
                       )
                       .join('; ');
+              const rr = ratingById[w.id];
+              const ratingText =
+                rr && rr.count > 0 && typeof rr.avg === 'number' ? `★ ${rr.avg.toFixed(1)} (${rr.count})` : '—';
               return (
                 <tr key={w.id}>
                   <td>{w.full_name}</td>
@@ -104,6 +122,7 @@ export function AdminWaitersPanel() {
                     <code>{w.email}</code>
                   </td>
                   <td>{w.phone || '—'}</td>
+                  <td className="muted">{ratingText}</td>
                   <td className="muted" style={{ maxWidth: 360, whiteSpace: 'normal', fontSize: '0.88rem' }}>
                     {brief}
                   </td>

@@ -20,6 +20,10 @@ export default function PayPage() {
   const [flash, setFlash] = useState<{ tone: FlashTone; text: string } | null>(null);
   const [tipRub, setTipRub] = useState('');
   const [tipBaseKopecks, setTipBaseKopecks] = useState<number | null>(null);
+  const [ratingRestaurant, setRatingRestaurant] = useState<number>(5);
+  const [ratingWaiter, setRatingWaiter] = useState<number>(5);
+  const [ratingBusy, setRatingBusy] = useState(false);
+  const [ratingDone, setRatingDone] = useState(false);
 
   useEffect(() => {
     if (!pid) return;
@@ -36,6 +40,7 @@ export default function PayPage() {
 
   const isTab = info?.purpose === 'tab';
   const showTipBlock = info?.status === 'succeeded' && isTab && info.reservation_id;
+  const showRatingBlock = info?.status === 'succeeded' && isTab && info.reservation_id && !ratingDone;
 
   useEffect(() => {
     if (!showTipBlock || !info?.reservation_id) {
@@ -108,6 +113,28 @@ export default function PayPage() {
     }
   };
 
+  const submitRating = async () => {
+    const rid = info?.reservation_id;
+    if (!rid) return;
+    if (ratingBusy) return;
+    setRatingBusy(true);
+    setFlash(null);
+    try {
+      await api.post('/reviews', {
+        reservation_id: rid,
+        rating_restaurant: ratingRestaurant,
+        rating_waiter: ratingWaiter,
+      });
+      setRatingDone(true);
+      setFlash({ tone: 'success', text: 'Спасибо! Оценка сохранена.' });
+    } catch (ex: unknown) {
+      const m = ex as { response?: { data?: { error?: string } } };
+      setFlash({ tone: 'error', text: m.response?.data?.error || 'Не удалось сохранить оценку.' });
+    } finally {
+      setRatingBusy(false);
+    }
+  };
+
   return (
     <div className="card pay-card">
       <h2>{isTab ? 'Оплата счёта' : info?.purpose === 'tip' ? 'Чаевые' : 'Оплата депозита'}</h2>
@@ -138,6 +165,37 @@ export default function PayPage() {
             </button>
           )}
         </>
+      )}
+      {showRatingBlock && (
+        <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+          <h3 style={{ fontSize: '1.05rem', margin: '0 0 0.5rem' }}>Оцените визит</h3>
+          <p className="muted compact" style={{ marginTop: 0 }}>
+            Это поможет улучшить сервис и покажется в рейтингах заведения.
+          </p>
+
+          <label>Заведение</label>
+          <StarRow value={ratingRestaurant} onChange={setRatingRestaurant} disabled={ratingBusy} />
+
+          <label style={{ marginTop: 10 }}>Официант</label>
+          <StarRow value={ratingWaiter} onChange={setRatingWaiter} disabled={ratingBusy} />
+
+          <button
+            type="button"
+            className="btn btn-sm"
+            style={{ marginTop: 12 }}
+            onClick={() => void submitRating()}
+            disabled={ratingBusy}
+          >
+            Отправить оценку
+          </button>
+        </div>
+      )}
+      {ratingDone && isTab && info?.status === 'succeeded' && (
+        <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+          <p className="muted compact" style={{ margin: 0 }}>
+            Оценка отправлена. Спасибо!
+          </p>
+        </div>
       )}
       {showTipBlock && (
         <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
@@ -175,6 +233,37 @@ export default function PayPage() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function StarRow({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="btn-row" style={{ gap: 6, flexWrap: 'wrap' }}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          className={n <= value ? 'btn btn-sm' : 'secondary btn-sm'}
+          onClick={() => onChange(n)}
+          disabled={disabled}
+          aria-label={`Оценка ${n} из 5`}
+          title={`${n} / 5`}
+        >
+          {n <= value ? '★' : '☆'}
+        </button>
+      ))}
+      <span className="muted compact" style={{ alignSelf: 'center' }}>
+        {value}/5
+      </span>
     </div>
   );
 }

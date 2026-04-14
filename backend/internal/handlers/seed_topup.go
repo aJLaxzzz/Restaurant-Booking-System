@@ -157,7 +157,8 @@ func (a *Handlers) dedupeBellaVistaRestaurants(ctx context.Context) {
 }
 
 func (a *Handlers) syncDemoMoscowRestaurants(ctx context.Context) {
-	const addrLuna = "Москва, наб. Патриарших прудов, 10"
+	// La Luna — демо-ресторан в Санкт-Петербурге (нужен для фильтра по городу на главной).
+	const addrLuna = "Санкт-Петербург, наб. реки Фонтанки, 20"
 	const addrTrattoria = "Москва, ул. Тверская, 12"
 	const nameTrattoria = "Траттория Тверская"
 	const descTrattoria = "Итальянская кухня и вино"
@@ -165,7 +166,7 @@ func (a *Handlers) syncDemoMoscowRestaurants(ctx context.Context) {
 	const descBella = "Итальянская кухня в центре Москвы"
 	const nameBella = "Bella Vista"
 	_, _ = a.Pool.Exec(ctx, `
-		UPDATE restaurants SET city='Москва', address=$1
+		UPDATE restaurants SET city='Санкт-Петербург', address=$1
 		WHERE slug='la-luna'`, addrLuna)
 	_, _ = a.Pool.Exec(ctx, `
 		UPDATE restaurants SET city='Москва', address=$1, description=$2, name=$3
@@ -316,12 +317,20 @@ func (a *Handlers) topUpTrattoriaIfMissing(ctx context.Context, ownerID uuid.UUI
 		w, h       float64
 		rot        float64
 	}{
-		{1, 2, 100, 100, "round", 52, 52, 0},
-		{2, 4, 260, 100, "rect", 88, 64, 0},
-		{3, 4, 420, 100, "rect", 88, 64, 0},
-		{4, 6, 580, 100, "ellipse", 112, 72, 0},
-		{5, 4, 100, 260, "rect", 88, 64, 12},
-		{6, 2, 260, 260, "round", 48, 48, 0},
+		{1, 2, 120, 120, "round", 52, 52, 0},
+		{2, 4, 300, 120, "rect", 96, 64, 0},
+		{3, 4, 480, 120, "rect", 96, 64, 0},
+		{4, 6, 520, 260, "ellipse", 120, 78, -6},
+		{5, 4, 140, 260, "rect", 92, 64, 10},
+		{6, 2, 320, 260, "round", 50, 50, 0},
+		{7, 8, 460, 420, "rect", 132, 92, 0},
+		{8, 4, 160, 440, "rect", 92, 64, 0},
+		{9, 4, 320, 460, "rect", 92, 64, -8},
+		{10, 6, 520, 540, "ellipse", 112, 84, 0},
+		{11, 4, 780, 160, "rect", 104, 72, 0},
+		{12, 6, 820, 270, "ellipse", 120, 84, 0},
+		{13, 2, 720, 460, "round", 50, 50, 0},
+		{14, 4, 860, 470, "rect", 100, 70, 0},
 	}
 	for _, t := range mainTables {
 		_, _ = a.Pool.Exec(ctx, `
@@ -361,12 +370,20 @@ func (a *Handlers) patchTrattoriaHallTablesMenu(ctx context.Context, rid uuid.UU
 			w, h       float64
 			rot        float64
 		}{
-			{1, 2, 100, 100, "round", 52, 52, 0},
-			{2, 4, 260, 100, "rect", 88, 64, 0},
-			{3, 4, 420, 100, "rect", 88, 64, 0},
-			{4, 6, 580, 100, "ellipse", 112, 72, 0},
-			{5, 4, 100, 260, "rect", 88, 64, 12},
-			{6, 2, 260, 260, "round", 48, 48, 0},
+			{1, 2, 120, 120, "round", 52, 52, 0},
+			{2, 4, 300, 120, "rect", 96, 64, 0},
+			{3, 4, 480, 120, "rect", 96, 64, 0},
+			{4, 6, 520, 260, "ellipse", 120, 78, -6},
+			{5, 4, 140, 260, "rect", 92, 64, 10},
+			{6, 2, 320, 260, "round", 50, 50, 0},
+			{7, 8, 460, 420, "rect", 132, 92, 0},
+			{8, 4, 160, 440, "rect", 92, 64, 0},
+			{9, 4, 320, 460, "rect", 92, 64, -8},
+			{10, 6, 520, 540, "ellipse", 112, 84, 0},
+			{11, 4, 780, 160, "rect", 104, 72, 0},
+			{12, 6, 820, 270, "ellipse", 120, 84, 0},
+			{13, 2, 720, 460, "round", 50, 50, 0},
+			{14, 4, 860, 470, "rect", 100, 70, 0},
 		}
 		for _, t := range mainTables {
 			_, _ = a.Pool.Exec(ctx, `
@@ -396,7 +413,7 @@ func (a *Handlers) topUpLaLunaIfMissing(ctx context.Context, ownerID uuid.UUID) 
 	own := a.ownerIfNoRestaurant(ctx, ownerID)
 	if _, err := a.Pool.Exec(ctx, `
 		INSERT INTO restaurants (id, name, address, slug, city, description, owner_user_id, photo_url, phone, opens_at, closes_at, extra_json)
-		VALUES ($1,'La Luna','Москва, наб. Патриарших прудов, 10','la-luna','Москва','Европейская кухня',$2,$3,'+7 (495) 222-30-02','11:00','23:30',$4::jsonb)`,
+		VALUES ($1,'La Luna','Санкт-Петербург, наб. реки Фонтанки, 20','la-luna','Санкт-Петербург','Европейская кухня',$2,$3,'+7 (812) 222-30-02','11:00','23:30',$4::jsonb)`,
 		rid, own, demoRestaurantCoverURL(DemoSlugLaLuna), demoRestaurantExtraJSONForSeed("kontakt@laluna-demo.rest", DemoSlugLaLuna)); err != nil {
 		log.Printf("сид: la-luna: %v", err)
 		return

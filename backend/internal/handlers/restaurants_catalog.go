@@ -16,9 +16,25 @@ import (
 func (a *Handlers) handleRestaurantsList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rows, err := a.Pool.Query(ctx, `
-		SELECT id, COALESCE(name,''), COALESCE(slug,''), COALESCE(city,''), COALESCE(description,''), COALESCE(photo_url,''),
-		       COALESCE(address,''), COALESCE(phone,''), COALESCE(opens_at,''), COALESCE(closes_at,'')
-		FROM restaurants ORDER BY name`)
+		SELECT
+		  r.id,
+		  COALESCE(r.name,''),
+		  COALESCE(r.slug,''),
+		  COALESCE(r.city,''),
+		  COALESCE(r.description,''),
+		  COALESCE(r.photo_url,''),
+		  COALESCE(r.address,''),
+		  COALESCE(r.phone,''),
+		  COALESCE(r.opens_at,''),
+		  COALESCE(r.closes_at,''),
+		  r.lat,
+		  r.lng,
+		  AVG(rv.rating_restaurant)::float8 AS rating_avg,
+		  COUNT(rv.id)::int AS rating_count
+		FROM restaurants r
+		LEFT JOIN reviews rv ON rv.restaurant_id = r.id
+		GROUP BY r.id
+		ORDER BY COALESCE(r.name,'')`)
 	if err != nil {
 		log.Printf("GET /restaurants list primary (будет использован упрощённый fallback — проверьте схему БД и миграции): %v", err)
 		rows, err = a.Pool.Query(ctx, `
@@ -52,7 +68,11 @@ func (a *Handlers) handleRestaurantsList(w http.ResponseWriter, r *http.Request)
 	for rows.Next() {
 		var id uuid.UUID
 		var name, slug, city, desc, photo, addr, phone, opensAt, closesAt string
-		if err := rows.Scan(&id, &name, &slug, &city, &desc, &photo, &addr, &phone, &opensAt, &closesAt); err != nil {
+		var lat *float64
+		var lng *float64
+		var ratingAvg *float64
+		var ratingCount int
+		if err := rows.Scan(&id, &name, &slug, &city, &desc, &photo, &addr, &phone, &opensAt, &closesAt, &lat, &lng, &ratingAvg, &ratingCount); err != nil {
 			log.Printf("GET /restaurants scan: %v", err)
 			continue
 		}
@@ -60,6 +80,8 @@ func (a *Handlers) handleRestaurantsList(w http.ResponseWriter, r *http.Request)
 			"id": id.String(), "name": name, "slug": slug, "city": city,
 			"description": desc, "photo_url": photo,
 			"address": addr, "phone": phone, "opens_at": opensAt, "closes_at": closesAt,
+			"lat": lat, "lng": lng,
+			"rating_avg": ratingAvg, "rating_count": ratingCount,
 		})
 	}
 	a.json(w, http.StatusOK, out)
