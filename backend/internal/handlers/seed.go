@@ -47,6 +47,7 @@ func (a *Handlers) Seed(ctx context.Context) {
 	a.ensureBellaVistaPastCompletedWithTab(ctx)
 	a.ensureDemoRatings(ctx)
 	a.ensureBellaVistaRating43(ctx)
+	a.ensureTrattoriaWaiterReviewsExtra(ctx)
 	a.ensureRestaurantTodayTomorrowDemoBookings(ctx, "trattoria-tverskaya", demoTrattoriaNearMarker, "waiter@demo.ru", "waiter2@demo.ru")
 	a.ensureRestaurantTodayTomorrowDemoBookings(ctx, "bella-vista", demoBellaNearMarker, "waiter5@demo.ru", "")
 	a.ensureClientDemoHasBookings(ctx)
@@ -392,6 +393,88 @@ func (a *Handlers) ensureBellaVistaRating43(ctx context.Context) {
 			INSERT INTO reviews (reservation_id, restaurant_id, client_id, waiter_id, rating_restaurant, rating_waiter, comment)
 			VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 			resID, restID, clientID, waiter, rr, rw, cmt)
+	}
+}
+
+// ensureTrattoriaWaiterReviewsExtra — дополнительные отзывы с оценкой официанта (waiter / waiter2) для демо Траттории.
+func (a *Handlers) ensureTrattoriaWaiterReviewsExtra(ctx context.Context) {
+	var restID uuid.UUID
+	if err := a.Pool.QueryRow(ctx, `SELECT id FROM restaurants WHERE slug='trattoria-tverskaya' LIMIT 1`).Scan(&restID); err != nil {
+		return
+	}
+	var w1, w2 uuid.UUID
+	if err := a.Pool.QueryRow(ctx, `
+		SELECT id FROM users WHERE lower(email)=lower($1) AND restaurant_id=$2 LIMIT 1`,
+		"waiter@demo.ru", restID).Scan(&w1); err != nil {
+		return
+	}
+	if err := a.Pool.QueryRow(ctx, `
+		SELECT id FROM users WHERE lower(email)=lower($1) AND restaurant_id=$2 LIMIT 1`,
+		"waiter2@demo.ru", restID).Scan(&w2); err != nil {
+		return
+	}
+
+	type pair struct{ rest, waiter int }
+	rates := []pair{
+		{5, 5}, {5, 4}, {4, 5}, {5, 5}, {4, 4}, {5, 4}, {4, 5}, {5, 4},
+		{5, 5}, {4, 4}, {5, 4}, {4, 5},
+	}
+	comments := []string{
+		"Внимательный официант.",
+		"Быстро принесли заказ.",
+		"Помогли с выбором блюд.",
+		"Приятное обслуживание.",
+		"Всё объяснили по меню.",
+	}
+
+	const targetPerWaiter = 8
+	for _, wid := range []uuid.UUID{w1, w2} {
+		var cnt int
+		_ = a.Pool.QueryRow(ctx, `
+			SELECT COUNT(*)::int FROM reviews
+			WHERE waiter_id = $1 AND rating_waiter IS NOT NULL`, wid).Scan(&cnt)
+		need := targetPerWaiter - cnt
+		if need <= 0 {
+			continue
+		}
+
+		cand, err := a.Pool.Query(ctx, `
+			SELECT r.id, r.user_id
+			FROM reservations r
+			JOIN tables t ON t.id = r.table_id
+			JOIN halls h ON h.id = t.hall_id
+			WHERE h.restaurant_id = $1
+			  AND r.status = 'completed'
+			  AND r.assigned_waiter_id = $2
+			  AND EXISTS (
+			    SELECT 1 FROM payments p
+			    WHERE p.reservation_id = r.id AND p.purpose = 'tab' AND p.status = 'succeeded'
+			  )
+			  AND NOT EXISTS (
+			    SELECT 1 FROM reviews rv
+			    WHERE rv.reservation_id = r.id AND rv.client_id = r.user_id
+			  )
+			ORDER BY r.completed_at DESC NULLS LAST, r.end_time DESC
+			LIMIT $3`, restID, wid, need)
+		if err != nil {
+			continue
+		}
+		k := 0
+		for cand.Next() {
+			var resID, clientID uuid.UUID
+			if err := cand.Scan(&resID, &clientID); err != nil {
+				continue
+			}
+			rp := rates[k%len(rates)]
+			cmt := comments[k%len(comments)]
+			k++
+			_, _ = a.Pool.Exec(ctx, `
+				INSERT INTO reviews (reservation_id, restaurant_id, client_id, waiter_id, rating_restaurant, rating_waiter, comment)
+				VALUES ($1,$2,$3,$4,$5,$6,$7)
+				ON CONFLICT (reservation_id, client_id) DO NOTHING`,
+				resID, restID, clientID, wid, rp.rest, rp.waiter, cmt)
+		}
+		cand.Close()
 	}
 }
 
