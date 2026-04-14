@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { resolvePublicImageUrl } from '../utils/publicAssetUrl';
+import { RestaurantRatingStars } from '../components/RestaurantRatingStars';
 
 type RestaurantDetail = {
   id: string;
@@ -16,6 +17,8 @@ type RestaurantDetail = {
   opens_at?: string;
   closes_at?: string;
   extra_json?: Record<string, unknown>;
+  rating_avg?: number | null;
+  rating_count?: number;
 };
 
 type MenuCategory = {
@@ -184,6 +187,9 @@ export default function RestaurantPage() {
         <div className="restaurant-public-headline">
           <p className="restaurant-city">{venue?.city}</p>
           <h1>{displayRestaurantName(venue)}</h1>
+          <div className="restaurant-public-rating">
+            <RestaurantRatingStars ratingAvg={venue.rating_avg} ratingCount={venue.rating_count} />
+          </div>
           {venue?.description ? <p className="restaurant-public-lead">{venue.description}</p> : null}
           {venue?.address ? (
             <p className="muted restaurant-public-meta restaurant-public-address">{venue.address}</p>

@@ -217,6 +217,21 @@ export function HallCanvas({
   const [chairLayout, setChairLayout] = useState<Record<string, ChairPt[]>>({});
   const [decorations, setDecorations] = useState<Decoration[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [, setDirty] = useState(false);
+  const autosaveTimerRef = useRef<number | null>(null);
+  const autosaveInFlightRef = useRef(false);
+  const stateRef = useRef<{
+    stageW: number;
+    stageH: number;
+    roomInset: RoomInset;
+    tables: TableShape[];
+    walls: Wall[];
+    wallArcs: WallArc[];
+    wallQuads: WallQuad[];
+    rooms: HallRoom[];
+    chairLayout: Record<string, ChairPt[]>;
+    decorations: Decoration[];
+  } | null>(null);
   const [scale, setScale] = useState(1);
   const [worldPan, setWorldPan] = useState({ x: 0, y: 0 });
   const [viewportW, setViewportW] = useState(920);
@@ -275,6 +290,18 @@ export function HallCanvas({
   }, [worldPan]);
   tablesRef.current = tables;
   chairLayoutRef.current = chairLayout;
+  stateRef.current = {
+    stageW,
+    stageH,
+    roomInset,
+    tables,
+    walls,
+    wallArcs,
+    wallQuads,
+    rooms,
+    chairLayout,
+    decorations,
+  };
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -425,7 +452,59 @@ export function HallCanvas({
         tables: tables.map((t) => ({ ...t })),
       },
     ]);
+    setDirty(true);
   };
+
+  const saveLayoutToServer = useCallback(async () => {
+    if (autosaveInFlightRef.current) return;
+    const snap = stateRef.current;
+    if (!snap) return;
+    autosaveInFlightRef.current = true;
+    try {
+      await api.put(`/halls/${hallId}/layout`, {
+        canvas_width: snap.stageW,
+        canvas_height: snap.stageH,
+        room_inset: snap.roomInset,
+        tables: snap.tables.map((t) => {
+          const tw = t.width && t.width > 0 ? t.width : (t.radius || 28) * 2;
+          const th = t.height && t.height > 0 ? t.height : (t.radius || 28) * 2;
+          return {
+            id: t.id,
+            number: t.number,
+            capacity: t.capacity,
+            x: t.x,
+            y: t.y,
+            shape: t.shape || 'circle',
+            radius: t.radius || tw / 2,
+            width: tw,
+            height: th,
+            rotation_deg: t.rotation_deg || 0,
+          };
+        }),
+        walls: snap.walls,
+        wall_segments: [
+          ...snap.walls.map((w) => ({ type: 'line' as const, x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 })),
+          ...snap.wallQuads,
+          ...snap.wallArcs,
+        ],
+        rooms: snap.rooms,
+        chair_layout: snap.chairLayout,
+        decorations: snap.decorations,
+      });
+      setDirty(false);
+    } finally {
+      autosaveInFlightRef.current = false;
+    }
+  }, [hallId]);
+
+  const scheduleAutoSave = useCallback(() => {
+    setDirty(true);
+    if (autosaveTimerRef.current != null) window.clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null;
+      void saveLayoutToServer();
+    }, 200);
+  }, [saveLayoutToServer]);
 
   const doUndo = useCallback(() => {
     setUndoStack((stack) => {
@@ -634,17 +713,10 @@ export function HallCanvas({
   }, [tables]);
 
   const handleDragEnd = (id: string, x: number, y: number) => {
+    captureUndo();
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, x: snap(x), y: snap(y) } : t)));
+    scheduleAutoSave();
   };
-
-  const wallSegmentsPayload = useMemo(
-    () => [
-      ...walls.map((w) => ({ type: 'line' as const, x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 })),
-      ...wallQuads,
-      ...wallArcs,
-    ],
-    [walls, wallArcs, wallQuads],
-  );
 
   const decorationDrawOrder = useMemo(() => {
     const non: number[] = [];
@@ -726,36 +798,12 @@ export function HallCanvas({
   );
 
   const saveLayout = async () => {
-    await api.put(`/halls/${hallId}/layout`, {
-      canvas_width: stageW,
-      canvas_height: stageH,
-      room_inset: roomInset,
-      tables: tables.map((t) => {
-        const tw = t.width && t.width > 0 ? t.width : (t.radius || 28) * 2;
-        const th = t.height && t.height > 0 ? t.height : (t.radius || 28) * 2;
-        return {
-          id: t.id,
-          number: t.number,
-          capacity: t.capacity,
-          x: t.x,
-          y: t.y,
-          shape: t.shape || 'circle',
-          radius: t.radius || tw / 2,
-          width: tw,
-          height: th,
-          rotation_deg: t.rotation_deg || 0,
-        };
-      }),
-      walls,
-      wall_segments: wallSegmentsPayload,
-      rooms,
-      chair_layout: chairLayout,
-      decorations,
-    });
-    await load();
+    await saveLayoutToServer();
   };
 
   const addTableFromModal = async (f: AddTableForm) => {
+    // Перед созданием нового стола фиксируем текущие изменения, чтобы последующий load() не «откатил» их.
+    await saveLayoutToServer();
     captureUndo();
     const n = f.tableNumber ?? (tables.length ? Math.max(...tables.map((t) => t.number)) + 1 : 1);
     await api.post(`/halls/${hallId}/tables`, {

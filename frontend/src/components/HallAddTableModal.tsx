@@ -31,12 +31,12 @@ export function HallAddTableModal({ open, onClose, onSubmit }: Props) {
   if (!open) return null;
 
   const submit = async () => {
-    const w = shape === 'circle' || shape === 'round' ? Math.max(DEFAULT_TABLE_W, DEFAULT_TABLE_H) : DEFAULT_TABLE_W;
-    const h = shape === 'circle' || shape === 'round' ? Math.max(DEFAULT_TABLE_W, DEFAULT_TABLE_H) : DEFAULT_TABLE_H;
+    const w = shape === 'circle' ? Math.max(DEFAULT_TABLE_W, DEFAULT_TABLE_H) : DEFAULT_TABLE_W;
+    const h = shape === 'circle' ? Math.max(DEFAULT_TABLE_W, DEFAULT_TABLE_H) : DEFAULT_TABLE_H;
     try {
       await onSubmit({
         capacity: Math.max(1, capacity),
-        shape: shape === 'round' ? 'circle' : shape,
+        shape,
         width: Math.max(20, w),
         height: Math.max(20, h),
         tableNumber: null,
@@ -69,7 +69,6 @@ export function HallAddTableModal({ open, onClose, onSubmit }: Props) {
             <option value="square">Квадрат</option>
             <option value="ellipse">Эллипс</option>
             <option value="circle">Круг</option>
-            <option value="round">Круг (как «круглый стол»)</option>
           </select>
         </div>
         <p className="muted compact" style={{ marginTop: 0 }}>

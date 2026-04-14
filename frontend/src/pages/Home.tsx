@@ -4,6 +4,7 @@ import { useAuth } from '../auth';
 import { api } from '../api';
 import { resolvePublicImageUrl } from '../utils/publicAssetUrl';
 import { RestaurantsMap } from '../components/RestaurantsMap';
+import { RestaurantRatingStars } from '../components/RestaurantRatingStars';
 
 type Restaurant = {
   id: string;
@@ -344,13 +345,9 @@ export default function Home() {
                 </div>
                 <div className="home-venue-card-body">
                   <h3 className="home-venue-name">{displayVenueName(r)}</h3>
-                  {typeof r.rating_avg === 'number' && (r.rating_count ?? 0) > 0 ? (
-                    <p className="home-venue-line muted compact">
-                      ★ {r.rating_avg.toFixed(1)} · {r.rating_count} оцен{r.rating_count === 1 ? 'ка' : r.rating_count! < 5 ? 'ки' : 'ок'}
-                    </p>
-                  ) : (
-                    <p className="home-venue-line muted compact">★ нет оценок</p>
-                  )}
+                  <div className="home-venue-line">
+                    <RestaurantRatingStars compact ratingAvg={r.rating_avg} ratingCount={r.rating_count} />
+                  </div>
                   {r.address ? (
                     <p className="home-venue-line muted compact">{r.address}</p>
                   ) : null}
@@ -437,26 +434,11 @@ export default function Home() {
         </ol>
       </section>
 
-      <section className="home-dev card" aria-labelledby="dev-title">
-        <h3 id="dev-title">Демо-доступ</h3>
-        <p className="home-dev-lead muted">
-          Пароль для всех тестовых аккаунтов: <code>Password1</code>
+      <footer className="home-dev card" aria-label="Копирайт">
+        <p className="muted" style={{ margin: 0 }}>
+          © 2026 Hypeaters Inc. Все права зарегистрированы.
         </p>
-        <ul className="home-dev-list">
-          <li>
-            <code>client@demo.ru</code> — гость
-          </li>
-          <li>
-            <code>admin@demo.ru</code> — администратор
-          </li>
-          <li>
-            <code>owner@demo.ru</code>, <code>owner2@demo.ru</code> — владельцы
-          </li>
-          <li>
-            <code>waiter@demo.ru</code> — официант
-          </li>
-        </ul>
-      </section>
+      </footer>
     </div>
   );
 }

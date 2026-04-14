@@ -140,12 +140,21 @@ func (a *Handlers) handleRestaurantGet(w http.ResponseWriter, r *http.Request) {
 		extraObj = map[string]any{}
 	}
 
+	var ratingAvg *float64
+	var ratingCount int
+	_ = a.Pool.QueryRow(ctx, `
+		SELECT AVG(rv.rating_restaurant)::float8, COUNT(rv.id)::int
+		FROM reviews rv
+		WHERE rv.restaurant_id = $1`, id).Scan(&ratingAvg, &ratingCount)
+
 	a.json(w, http.StatusOK, map[string]any{
 		"id": id.String(), "name": name, "slug": slug, "city": city,
 		"description": desc, "photo_url": photo, "address": address,
 		"phone": phone, "opens_at": opensAt, "closes_at": closesAt,
 		"extra_json":         extraObj,
 		"photo_gallery_urls": photoGalleryURLsFromExtraMap(extraObj),
+		"rating_avg":         ratingAvg,
+		"rating_count":       ratingCount,
 	})
 }
 

@@ -43,7 +43,10 @@ func (a *Handlers) Seed(ctx context.Context) {
 	if resCount == 0 {
 		a.seedLifeData(ctx)
 	}
+	// Исторические completed+tab в seedLifeData попадают на первые столы в сортировке — Bella Vista часто без таких визитов.
+	a.ensureBellaVistaPastCompletedWithTab(ctx)
 	a.ensureDemoRatings(ctx)
+	a.ensureBellaVistaRating43(ctx)
 	a.ensureRestaurantTodayTomorrowDemoBookings(ctx, "trattoria-tverskaya", demoTrattoriaNearMarker, "waiter@demo.ru", "waiter2@demo.ru")
 	a.ensureRestaurantTodayTomorrowDemoBookings(ctx, "bella-vista", demoBellaNearMarker, "waiter5@demo.ru", "")
 	a.ensureClientDemoHasBookings(ctx)
@@ -129,55 +132,125 @@ func (a *Handlers) ensureDemoRestaurantCoords(ctx context.Context) {
 	}
 }
 
-// ensureDemoRatings — создаёт несколько отзывов (reviews), чтобы рейтинги были видны сразу после поднятия.
-// Делает это только если отзывов ещё нет.
-func (a *Handlers) ensureDemoRatings(ctx context.Context) {
-	var n int
-	if err := a.Pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM reviews`).Scan(&n); err == nil && n > 0 {
+// ensureBellaVistaPastCompletedWithTab — гарантирует несколько завершённых визитов с успешным tab-платежом
+// у Bella Vista, чтобы ensureDemoRatings мог создать отзывы (и рейтинг на главной).
+func (a *Handlers) ensureBellaVistaPastCompletedWithTab(ctx context.Context) {
+	var restID uuid.UUID
+	if err := a.Pool.QueryRow(ctx, `SELECT id FROM restaurants WHERE slug='bella-vista' LIMIT 1`).Scan(&restID); err != nil {
 		return
 	}
-
-	// Берём завершённые визиты, по которым сид уже создаёт tab-платёж (seedClosedOrdersForCompleted).
-	rows, err := a.Pool.Query(ctx, `
-		SELECT
-			r.id,
-			rest.id AS restaurant_id,
-			r.user_id AS client_id,
-			r.assigned_waiter_id
+	var have int
+	_ = a.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)::int
 		FROM reservations r
 		JOIN tables t ON t.id = r.table_id
 		JOIN halls h ON h.id = t.hall_id
-		JOIN restaurants rest ON rest.id = h.restaurant_id
-		WHERE r.status = 'completed'
+		WHERE h.restaurant_id = $1
+		  AND r.status = 'completed'
 		  AND EXISTS (
 		    SELECT 1 FROM payments p
-		    WHERE p.reservation_id = r.id AND p.purpose='tab' AND p.status='succeeded'
-		  )
-		ORDER BY r.completed_at DESC NULLS LAST, r.end_time DESC
-		LIMIT 12`)
+		    WHERE p.reservation_id = r.id AND p.purpose = 'tab' AND p.status = 'succeeded'
+		  )`, restID).Scan(&have)
+	// Нужно ≥10 визитов с tab, чтобы выставить ровно avg=4.3 по 10 отзывам (ensureBellaVistaRating43).
+	const want = 14
+	if have >= want {
+		return
+	}
+	need := want - have
+
+	var wid uuid.UUID
+	if err := a.Pool.QueryRow(ctx, `
+		SELECT id FROM users WHERE lower(email) = lower($1) AND restaurant_id = $2 LIMIT 1`,
+		"waiter5@demo.ru", restID).Scan(&wid); err != nil {
+		return
+	}
+
+	tabRows, err := a.Pool.Query(ctx, `
+		SELECT t.id FROM tables t
+		JOIN halls h ON h.id = t.hall_id
+		WHERE h.restaurant_id = $1
+		ORDER BY t.table_number
+		LIMIT 8`, restID)
 	if err != nil {
 		return
 	}
-	defer rows.Close()
-
-	type rr struct {
-		resID   uuid.UUID
-		restID  uuid.UUID
-		client  uuid.UUID
-		waiter  *uuid.UUID
-	}
-	var picked []rr
-	for rows.Next() {
-		var x rr
-		if err := rows.Scan(&x.resID, &x.restID, &x.client, &x.waiter); err == nil {
-			picked = append(picked, x)
+	var tableIDs []uuid.UUID
+	for tabRows.Next() {
+		var tid uuid.UUID
+		if err := tabRows.Scan(&tid); err != nil {
+			tabRows.Close()
+			return
 		}
+		tableIDs = append(tableIDs, tid)
 	}
-	if len(picked) == 0 {
+	tabRows.Close()
+	if len(tableIDs) == 0 {
 		return
 	}
 
-	// Небольшой разброс оценок (чтобы выглядело «живым»).
+	clientRows, err := a.Pool.Query(ctx, `SELECT id FROM users WHERE role = 'client' ORDER BY email LIMIT 16`)
+	if err != nil {
+		return
+	}
+	var clientIDs []uuid.UUID
+	for clientRows.Next() {
+		var cid uuid.UUID
+		if err := clientRows.Scan(&cid); err != nil {
+			clientRows.Close()
+			return
+		}
+		clientIDs = append(clientIDs, cid)
+	}
+	clientRows.Close()
+	if len(clientIDs) == 0 {
+		return
+	}
+
+	now := time.Now().UTC()
+	slot := 2 * time.Hour
+	day := 24 * time.Hour
+
+	for i := 0; i < need; i++ {
+		tid := tableIDs[i%len(tableIDs)]
+		uid := clientIDs[i%len(clientIDs)]
+		start := now.Add(-day * time.Duration(40+i)).Add(time.Duration(11+i%5) * time.Hour)
+		end := start.Add(slot)
+		seated := start.Add(4 * time.Minute)
+		svc := seated.Add(8 * time.Minute)
+		completed := end.Add(42 * time.Minute)
+		var cap int
+		if err := a.Pool.QueryRow(ctx, `SELECT capacity FROM tables WHERE id=$1`, tid).Scan(&cap); err != nil {
+			continue
+		}
+		guests := 2 + (i % 4)
+		if guests > cap {
+			guests = cap
+		}
+		if guests < 1 {
+			guests = 1
+		}
+		_, err := a.Pool.Exec(ctx, `
+			INSERT INTO reservations (
+				table_id, user_id, start_time, end_time, guest_count, status, comment, created_by,
+				assigned_waiter_id, seated_at, service_started_at, completed_at
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+			tid, uid, start, end, guests, "completed", "демо-визит (Bella Vista)", "client",
+			wid, &seated, &svc, &completed,
+		)
+		if err != nil {
+			continue
+		}
+	}
+
+	a.seedClosedOrdersForCompleted(ctx)
+}
+
+// ensureDemoRatings — для каждого ресторана добавляет отзывы (reviews), пока не наберётся
+// минимум minPerRestaurant штук, чтобы на главной у всех был видимый rating_avg.
+// Используются только завершённые визиты с успешным tab-платежом (как в handleReviewCreate).
+func (a *Handlers) ensureDemoRatings(ctx context.Context) {
+	const minPerRestaurant = 3
+
 	type pair struct{ rest, waiter int }
 	rates := []pair{{5, 5}, {5, 4}, {4, 4}, {5, 5}, {4, 5}, {5, 4}, {4, 4}, {5, 5}}
 	comments := []string{
@@ -188,18 +261,137 @@ func (a *Handlers) ensureDemoRatings(ctx context.Context) {
 		"Хорошее обслуживание.",
 	}
 
-	for i, x := range picked {
-		rp := rates[i%len(rates)]
+	restRows, err := a.Pool.Query(ctx, `SELECT id FROM restaurants ORDER BY name`)
+	if err != nil {
+		return
+	}
+	var restIDs []uuid.UUID
+	for restRows.Next() {
+		var id uuid.UUID
+		if err := restRows.Scan(&id); err == nil {
+			restIDs = append(restIDs, id)
+		}
+	}
+	restRows.Close()
+
+	for _, restID := range restIDs {
+		var have int
+		_ = a.Pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM reviews WHERE restaurant_id=$1`, restID).Scan(&have)
+		need := minPerRestaurant - have
+		if need <= 0 {
+			continue
+		}
+
+		cand, err := a.Pool.Query(ctx, `
+			SELECT
+				r.id,
+				r.user_id,
+				r.assigned_waiter_id
+			FROM reservations r
+			JOIN tables t ON t.id = r.table_id
+			JOIN halls h ON h.id = t.hall_id
+			WHERE h.restaurant_id = $1
+			  AND r.status = 'completed'
+			  AND EXISTS (
+			    SELECT 1 FROM payments p
+			    WHERE p.reservation_id = r.id AND p.purpose='tab' AND p.status='succeeded'
+			  )
+			  AND NOT EXISTS (
+			    SELECT 1 FROM reviews rv
+			    WHERE rv.reservation_id = r.id AND rv.client_id = r.user_id
+			  )
+			ORDER BY r.completed_at DESC NULLS LAST, r.end_time DESC
+			LIMIT $2`, restID, need)
+		if err != nil {
+			continue
+		}
+		idx := 0
+		for cand.Next() {
+			var resID, clientID uuid.UUID
+			var waiter *uuid.UUID
+			if err := cand.Scan(&resID, &clientID, &waiter); err != nil {
+				continue
+			}
+			rp := rates[idx%len(rates)]
+			cmt := comments[idx%len(comments)]
+			idx++
+			var rw any = rp.waiter
+			if waiter == nil {
+				rw = nil
+			}
+			_, _ = a.Pool.Exec(ctx, `
+				INSERT INTO reviews (reservation_id, restaurant_id, client_id, waiter_id, rating_restaurant, rating_waiter, comment)
+				VALUES ($1,$2,$3,$4,$5,$6,$7)
+				ON CONFLICT (reservation_id, client_id) DO NOTHING
+			`, resID, restID, clientID, waiter, rp.rest, rw, cmt)
+		}
+		cand.Close()
+	}
+}
+
+// ensureBellaVistaRating43 — для демо Bella Vista фиксирует средний рейтинг ресторана 4.3
+// (10 оценок: три «5» и семь «4» → 43/10).
+func (a *Handlers) ensureBellaVistaRating43(ctx context.Context) {
+	var restID uuid.UUID
+	if err := a.Pool.QueryRow(ctx, `SELECT id FROM restaurants WHERE slug='bella-vista' LIMIT 1`).Scan(&restID); err != nil {
+		return
+	}
+	_, _ = a.Pool.Exec(ctx, `DELETE FROM reviews WHERE restaurant_id=$1`, restID)
+
+	ratings := []int{5, 5, 5, 4, 4, 4, 4, 4, 4, 4}
+	comments := []string{
+		"Очень понравилось.",
+		"Хорошая кухня.",
+		"Уютно.",
+		"Неплохо, но долго ждали.",
+		"Нормально.",
+		"Доброжелательный персонал.",
+		"Вкусно.",
+		"Спокойная атмосфера.",
+		"Зайдём ещё.",
+		"Рекомендую.",
+	}
+
+	rows, err := a.Pool.Query(ctx, `
+		SELECT r.id, r.user_id, r.assigned_waiter_id
+		FROM reservations r
+		JOIN tables t ON t.id = r.table_id
+		JOIN halls h ON h.id = t.hall_id
+		WHERE h.restaurant_id = $1
+		  AND r.status = 'completed'
+		  AND EXISTS (
+		    SELECT 1 FROM payments p
+		    WHERE p.reservation_id = r.id AND p.purpose = 'tab' AND p.status = 'succeeded'
+		  )
+		ORDER BY r.completed_at DESC NULLS LAST, r.id
+		LIMIT $2`, restID, len(ratings))
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	i := 0
+	for rows.Next() {
+		if i >= len(ratings) {
+			break
+		}
+		var resID, clientID uuid.UUID
+		var waiter *uuid.UUID
+		if err := rows.Scan(&resID, &clientID, &waiter); err != nil {
+			continue
+		}
+		rr := ratings[i]
 		cmt := comments[i%len(comments)]
-		var rw any = rp.waiter
-		if x.waiter == nil {
+		i++
+		var rw any
+		if waiter != nil {
+			rw = rr
+		} else {
 			rw = nil
 		}
 		_, _ = a.Pool.Exec(ctx, `
 			INSERT INTO reviews (reservation_id, restaurant_id, client_id, waiter_id, rating_restaurant, rating_waiter, comment)
-			VALUES ($1,$2,$3,$4,$5,$6,$7)
-			ON CONFLICT (reservation_id, client_id) DO NOTHING
-		`, x.resID, x.restID, x.client, x.waiter, rp.rest, rw, cmt)
+			VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			resID, restID, clientID, waiter, rr, rw, cmt)
 	}
 }
 

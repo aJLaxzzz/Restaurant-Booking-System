@@ -284,7 +284,8 @@ function collapseOneCellZigzags(poly: number[], cs: number): number[] {
   if (pts.length < 10) return pts;
   const n = pts.length / 2;
   const keep = new Array<boolean>(n).fill(true);
-  const isStep = (dx: number, dy: number) => Math.abs(dx) === cs && dy === 0 || Math.abs(dy) === cs && dx === 0;
+  const manhattan = (dx: number, dy: number) => Math.abs(dx) + Math.abs(dy);
+  const isUnitStep = (dx: number, dy: number) => (Math.abs(dx) === cs && dy === 0) || (Math.abs(dy) === cs && dx === 0);
   for (let i = 0; i < n; i++) {
     const ax = pts[((i - 1 + n) % n) * 2];
     const ay = pts[((i - 1 + n) % n) * 2 + 1];
@@ -303,7 +304,13 @@ function collapseOneCellZigzags(poly: number[], cs: number): number[] {
     // A->B and C->D are same direction; B->C is a single-cell orthogonal detour.
     const sameDir = (abx === cdx && aby === cdy);
     const detourOrth = (abx === 0 && bcy === 0) || (aby === 0 && bcx === 0);
-    if (sameDir && detourOrth && isStep(bcx, bcy)) {
+    // Важно: схлопываем только "микро-зигзаг" на 1 клетку (чтобы не срезать настоящие углы внешней зоны).
+    const unitForward = manhattan(abx, aby) === cs && manhattan(cdx, cdy) === cs;
+    const unitDetour = isUnitStep(bcx, bcy);
+    const adx = dx - ax;
+    const ady = dy - ay;
+    const straightAdvance = sameDir && manhattan(adx, ady) === cs * 2 && (adx === abx * 2 && ady === aby * 2);
+    if (straightAdvance && detourOrth && unitForward && unitDetour) {
       // drop B and C; connect A->D
       keep[i] = false;
       keep[(i + 1) % n] = false;
@@ -393,7 +400,10 @@ export function floodRegionPolygonFromWalls(
   // Точность и стабильность:
   // - cs меньше => меньше "лесенка" и ближе к стенам, но больше клеток для BFS.
   // - wallR/segmentCap подстраиваем под cs, чтобы барьер вокруг стен был визуально ровным.
-  const cs = clamp(Math.round(Math.min(stageW, stageH) / 120), 6, 10); // обычно 6–10px
+  let cs = clamp(Math.round(Math.min(stageW, stageH) / 120), 6, 10); // обычно 6–10px
+  // Кривые стены (дуги/кривые) на клеточной сетке дают заметную "лесенку".
+  // Для таких залов берём более мелкую сетку.
+  if (wallArcs.length > 0 || wallQuads.length > 0) cs = Math.min(cs, 5);
   const wallR = Math.max(3, Math.round(cs / 2.5));
   const wallR2 = wallR * wallR;
   const segmentCap = Math.max(cs, Math.round(wallR * 2.75));
