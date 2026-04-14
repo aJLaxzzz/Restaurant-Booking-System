@@ -9,7 +9,6 @@ import { HallCanvasGrid } from './HallCanvasGrid';
 import { HallZoneFillModal } from './HallZoneFillModal';
 import {
   effectivePolygonArea,
-  pointInPolygon,
   pointInPolygonWithHoles,
   polygonArea,
   reversePolygonRingFlat,
@@ -52,6 +51,23 @@ type TableClip = {
 };
 
 type RoomInset = { x: number; y: number; w: number; h: number };
+
+function normalizeChairs(
+  chairs: ChairPt[] | undefined,
+  capacity: number,
+  fallback: ChairPt[],
+): ChairPt[] {
+  const cap = Math.max(1, Math.min(24, capacity));
+  const src = Array.isArray(chairs) ? chairs : [];
+  const out: ChairPt[] = [];
+  for (let i = 0; i < cap; i++) {
+    const c = src[i];
+    if (c && Number.isFinite(c.dx) && Number.isFinite(c.dy)) out.push({ dx: c.dx, dy: c.dy });
+    else if (fallback[i]) out.push({ dx: fallback[i].dx, dy: fallback[i].dy });
+    else out.push({ dx: 0, dy: 0 });
+  }
+  return out;
+}
 
 type Props = {
   hallId: string;
@@ -594,12 +610,13 @@ export function HallCanvas({
         const rh = t.height && t.height > 0 ? t.height / 2 : t.radius || 28;
         const cap = Math.max(1, Math.min(24, t.capacity));
         const pending = pastePendingChairsRef.current.get(t.id);
-        if (pending && pending.length === cap) {
-          next[t.id] = pending.map((c) => ({ dx: c.dx, dy: c.dy }));
-          pastePendingChairsRef.current.delete(t.id);
-          changed = true;
-          continue;
-        }
+          if (pending) {
+            const fb = defaultChairOffsets(cap, rw, rh, t.shape || 'circle');
+            next[t.id] = normalizeChairs(pending, cap, fb);
+            pastePendingChairsRef.current.delete(t.id);
+            changed = true;
+            continue;
+          }
         const cur = next[t.id];
         if (!cur || cur.length !== cap) {
           next[t.id] = defaultChairOffsets(cap, rw, rh, t.shape || 'circle');
@@ -1063,10 +1080,8 @@ export function HallCanvas({
             const cap = Math.max(1, Math.min(24, t.capacity));
             const rwH = tw / 2;
             const rhH = th / 2;
-            let chairs = chairLayoutRef.current[t.id] || [];
-            if (chairs.length !== cap) {
-              chairs = defaultChairOffsets(cap, rwH, rhH, t.shape || 'circle');
-            }
+              const fb = defaultChairOffsets(cap, rwH, rhH, t.shape || 'circle');
+              const chairs = normalizeChairs(chairLayoutRef.current[t.id], cap, fb);
             tableClipRef.current = {
               capacity: t.capacity,
               x: t.x,

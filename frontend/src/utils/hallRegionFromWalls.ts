@@ -11,6 +11,10 @@ export type FloodRegionPolygon = {
   holes: number[][];
 };
 
+function clamp(n: number, a: number, b: number) {
+  return Math.max(a, Math.min(b, n));
+}
+
 function distSqPointSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
   const dx = x2 - x1;
   const dy = y2 - y1;
@@ -226,6 +230,102 @@ function keysPathToWorldPoly(path: string[], cs: number): number[] {
   return poly;
 }
 
+function dedupeConsecutiveVertices(poly: number[]): number[] {
+  if (poly.length < 6) return poly;
+  const out: number[] = [];
+  for (let i = 0; i < poly.length; i += 2) {
+    const x = poly[i];
+    const y = poly[i + 1];
+    const ox = out[out.length - 2];
+    const oy = out[out.length - 1];
+    if (out.length >= 2 && x === ox && y === oy) continue;
+    out.push(x, y);
+  }
+  if (out.length >= 6) {
+    const x0 = out[0];
+    const y0 = out[1];
+    const xl = out[out.length - 2];
+    const yl = out[out.length - 1];
+    if (x0 === xl && y0 === yl) out.splice(out.length - 2, 2);
+  }
+  return out;
+}
+
+function removeCollinearOrthogonal(poly: number[]): number[] {
+  // Для ортогонального контура: удаляем вершины, которые не меняют направление (A->B->C на одной линии).
+  if (poly.length < 6) return poly;
+  const pts = dedupeConsecutiveVertices(poly);
+  if (pts.length < 6) return pts;
+  const out: number[] = [];
+  const n = pts.length / 2;
+  for (let i = 0; i < n; i++) {
+    const ax = pts[((i - 1 + n) % n) * 2];
+    const ay = pts[((i - 1 + n) % n) * 2 + 1];
+    const bx = pts[i * 2];
+    const by = pts[i * 2 + 1];
+    const cx = pts[((i + 1) % n) * 2];
+    const cy = pts[((i + 1) % n) * 2 + 1];
+    const abx = bx - ax;
+    const aby = by - ay;
+    const bcx = cx - bx;
+    const bcy = cy - by;
+    const collinear = (abx === 0 && bcx === 0) || (aby === 0 && bcy === 0);
+    if (collinear) continue;
+    out.push(bx, by);
+  }
+  return out.length >= 6 ? out : pts;
+}
+
+function collapseOneCellZigzags(poly: number[], cs: number): number[] {
+  // Схлопываем микро-зигзаги вида: ... A -> B -> C -> D ..., где B и C — "ступенька" на 1 клетку.
+  // Это типичный артефакт границы клеточной компоненты.
+  if (poly.length < 10) return poly;
+  const pts = removeCollinearOrthogonal(poly);
+  if (pts.length < 10) return pts;
+  const n = pts.length / 2;
+  const keep = new Array<boolean>(n).fill(true);
+  const isStep = (dx: number, dy: number) => Math.abs(dx) === cs && dy === 0 || Math.abs(dy) === cs && dx === 0;
+  for (let i = 0; i < n; i++) {
+    const ax = pts[((i - 1 + n) % n) * 2];
+    const ay = pts[((i - 1 + n) % n) * 2 + 1];
+    const bx = pts[i * 2];
+    const by = pts[i * 2 + 1];
+    const cx = pts[((i + 1) % n) * 2];
+    const cy = pts[((i + 1) % n) * 2 + 1];
+    const dx = pts[((i + 2) % n) * 2];
+    const dy = pts[((i + 2) % n) * 2 + 1];
+    const abx = bx - ax;
+    const aby = by - ay;
+    const bcx = cx - bx;
+    const bcy = cy - by;
+    const cdx = dx - cx;
+    const cdy = dy - cy;
+    // A->B and C->D are same direction; B->C is a single-cell orthogonal detour.
+    const sameDir = (abx === cdx && aby === cdy);
+    const detourOrth = (abx === 0 && bcy === 0) || (aby === 0 && bcx === 0);
+    if (sameDir && detourOrth && isStep(bcx, bcy)) {
+      // drop B and C; connect A->D
+      keep[i] = false;
+      keep[(i + 1) % n] = false;
+    }
+  }
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (!keep[i]) continue;
+    out.push(pts[i * 2], pts[i * 2 + 1]);
+  }
+  return out.length >= 6 ? removeCollinearOrthogonal(out) : pts;
+}
+
+function simplifyFloodBoundary(poly: number[], cs: number): number[] {
+  let out = dedupeConsecutiveVertices(poly);
+  out = removeCollinearOrthogonal(out);
+  out = collapseOneCellZigzags(out, cs);
+  out = dedupeConsecutiveVertices(out);
+  out = removeCollinearOrthogonal(out);
+  return out;
+}
+
 /**
  * Внешний контур (макс. площадь) и внутренние границы дыр ортогональной компоненты клеток.
  */
@@ -290,10 +390,13 @@ export function floodRegionPolygonFromWalls(
   wallQuads: WallQuad[],
   roomClipPoly: number[] | null = null,
 ): FloodRegionPolygon | null {
-  const cs = 12;
-  const wallR = 4;
+  // Точность и стабильность:
+  // - cs меньше => меньше "лесенка" и ближе к стенам, но больше клеток для BFS.
+  // - wallR/segmentCap подстраиваем под cs, чтобы барьер вокруг стен был визуально ровным.
+  const cs = clamp(Math.round(Math.min(stageW, stageH) / 120), 6, 10); // обычно 6–10px
+  const wallR = Math.max(3, Math.round(cs / 2.5));
   const wallR2 = wallR * wallR;
-  const segmentCap = Math.max(10, wallR * 2.5);
+  const segmentCap = Math.max(cs, Math.round(wallR * 2.75));
   const nx = Math.max(1, Math.floor(stageW / cs));
   const ny = Math.max(1, Math.floor(stageH / cs));
   const segs = segmentsFromGeometry(walls, wallArcs, wallQuads);
@@ -369,10 +472,11 @@ export function floodRegionPolygonFromWalls(
     region = { outer: bbox, holes: [] };
   }
 
-  const { outer, holes } = region;
+  const outer = simplifyFloodBoundary(region.outer, cs);
+  const holes = region.holes.map((h) => simplifyFloodBoundary(h, cs)).filter((h) => h.length >= 6);
   let eff = polygonArea(outer);
   for (const h of holes) eff -= polygonArea(h);
   if (eff <= 0 || eff / (stageW * stageH) > 0.9995) return null;
 
-  return region;
+  return { outer, holes };
 }

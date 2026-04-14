@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"log"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,6 +11,12 @@ import (
 )
 
 func (a *Handlers) Seed(ctx context.Context) {
+	// Опционально: принудительно очистить брони (CASCADE) перед сидом.
+	// Это удобно для демо-режима, когда из-за активных броней нельзя удалять/менять столы.
+	if os.Getenv("RESET_DEMO_RESERVATIONS") == "1" {
+		_ = a.ResetDemoReservations(ctx)
+	}
+
 	var hallCount int
 	_ = a.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM halls`).Scan(&hallCount)
 	if hallCount == 0 {
@@ -22,6 +29,15 @@ func (a *Handlers) Seed(ctx context.Context) {
 	a.ensureDemoRestaurantCoords(ctx)
 	a.ensureTrattoriaSingleHall(ctx)
 	a.ensureTrattoriaMainHallDemoZonesLayout(ctx)
+
+	// Если нужно «пользоваться сайтом без броней» — отключаем генерацию демо-броней на этом запуске.
+	// Сами данные ресторанов/залов/пользователей при этом остаются и продолжают доводиться до демо-вида.
+	if os.Getenv("SEED_DEMO_RESERVATIONS") == "0" {
+		a.ensureSuperadminUser(ctx)
+		a.ensureDefaultSettings(ctx)
+		return
+	}
+
 	var resCount int
 	_ = a.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM reservations`).Scan(&resCount)
 	if resCount == 0 {
